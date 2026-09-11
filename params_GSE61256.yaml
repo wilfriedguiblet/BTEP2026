@@ -1,0 +1,26 @@
+analysis_id: "gse61256_g4_100bp"
+outdir: "results/g4_methylation_age_100bp"
+
+# Default public experiment: three human tissues from GSE61256.
+samplesheet: null
+geo_series: "GSE61257:adipose,GSE61258:liver,GSE61259:muscle"
+
+# Local CCRRBL-20 references.
+g4_stable: "../G4Hunter/G4Hunter.hg38.stable.bed"
+g4_unstable: "../G4Hunter/G4Hunter.hg38.unstable.bed"
+g4_flank_bp: 100
+g4_long_quantile: 0.99
+g4_long_mad_multiplier: 3
+g4_long_min_bp: 0
+ucsc_goldenpath_dir: "/fdb/genomebrowser/goldenPath/hg38"
+rloop_bed: ""
+rloop_url: "https://rlbase-data.s3.amazonaws.com/misc/rlregions_dRNH.narrowPeak"
+replication_timing_bed: ""
+replication_timing_url: ""
+cross_reactive_probes: ""
+cross_reactive_probes_url: ""
+probe_manifest: "../results/submission_v3/reference_manifest/probe_gene_manifest.csv.gz"
+
+min_samples: 2
+default_covariates: "sex|bmi"
+slurm_partition: "norm"

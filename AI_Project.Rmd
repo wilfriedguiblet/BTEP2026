@@ -1,0 +1,143 @@
+---
+title: "Age-Related CpG Methylation Drift Around G-Quadruplexes"
+subtitle: "Scientific literature review for the BTEP presentation project"
+author: "CCRRBL-20 project team"
+date: "2026-09-10"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+# Executive Summary
+
+The project hypothesis is that age-related changes in CpG methylation state occur faster in and around DNA G-quadruplexes (G4s). The current literature makes this hypothesis plausible, but it has not yet matured into a settled consensus. Three points are well supported: G4-forming sequences are enriched in CpG-rich regulatory DNA, especially promoters and CpG islands; DNA methylation and G4 folding influence each other biophysically and enzymatically; and aging-associated methylation drift is concentrated in non-random regulatory contexts, especially CpG islands, Polycomb/bivalent promoters, and developmental genes. The missing consensus link is direct: few studies have explicitly modeled age-associated per-CpG methylation slopes as a function of distance to experimentally measured or predicted G4s while controlling for CpG density, chromatin state, gene regulation, and platform ascertainment.
+
+The strongest literature-grounded conclusion is therefore conditional: G4-proximal CpGs are credible candidates for accelerated methylation drift with age, but the effect must be demonstrated against matched genomic controls because G4s co-localize with many features that already predict methylation aging. The most defensible presentation framing is not "G4s are known accelerators of methylation aging," but rather "G4s mark a mechanistically plausible, testable regulatory architecture where aging-associated methylation drift may be amplified."
+
+# Biological Background
+
+## CpG methylation and aging
+
+DNA methylation at CpG dinucleotides is a central epigenetic mark in mammalian genomes. Most CpGs are methylated, whereas CpG islands at many promoters are usually unmethylated in normal somatic cells. With aging, the methylome changes in two broad ways: global or regional loss of methylation in some contexts, and focal gains of methylation at CpG-rich regulatory elements. These changes are sufficiently reproducible that penalized models can predict chronological age from hundreds of CpGs, as shown by early multi-tissue and blood-based epigenetic clocks.
+
+The consensus from epigenetic-aging studies is that methylation aging is not purely stochastic. Age-associated hypermethylation is repeatedly enriched at CpG islands, developmental regulators, Polycomb-repressed and bivalent promoters, and loci that are also vulnerable to aberrant methylation in cancer. At the same time, many age-sensitive CpGs are tissue-specific, cell-composition-sensitive, and dependent on assay coverage. This matters for the present hypothesis because G4s are also enriched in CpG-rich regulatory DNA. Any apparent G4 effect could reflect G4 biology, shared CpG-island architecture, or both.
+
+## G-quadruplexes as regulatory DNA structures
+
+G-quadruplexes are non-canonical nucleic-acid structures formed by stacked guanine tetrads stabilized by monovalent cations. In the human genome, predicted and experimentally detected G4s are enriched at promoters, transcription start sites, CpG islands, replication origins, telomeres, untranslated regions, and oncogene regulatory elements. G4-seq and chromatin immunoprecipitation approaches have shown that G4-forming potential is widespread, but in-cell G4 formation is context-dependent and shaped by chromatin accessibility, supercoiling, transcription, replication stress, helicases, and G4-binding proteins.
+
+The field consensus is that G4s are not passive sequence ornaments. They can influence transcription, replication, genome stability, repair, and chromatin organization. However, predicted G4 motifs greatly outnumber G4s detected in chromatin at any given time. This creates an important distinction for our project: stable or experimentally supported G4s are more interpretable as biological structures, whereas sequence-predicted G4s may also act as proxies for GC-rich, CpG-rich regulatory architecture.
+
+# Evidence Connecting G4s and DNA Methylation
+
+## Genomic co-localization
+
+G4 motifs and CpG methylation landscapes intersect strongly because both are shaped by GC-rich sequence composition. Promoters and CpG islands are enriched for potential G4-forming sequences, and many G4 maps overlap regulatory elements where methylation is tightly controlled. Studies such as G4-seq and chromatin G4 profiling established that G4s are concentrated in gene-regulatory regions rather than uniformly distributed across the genome.
+
+This co-localization supports the hypothesis at the level of genomic opportunity: many age-sensitive CpGs are close enough to G4-capable DNA for local structure to matter. It also creates the central confounding problem. CpG density, promoter status, chromatin state, transcription factor occupancy, replication timing, and Polycomb marking can each predict methylation dynamics independently of G4 formation. A consensus-quality test therefore requires matched controls or regression adjustment for these features.
+
+## Biophysical effects of methylation on G4 folding
+
+Cytosine methylation can alter G4 stability, topology, and protein binding, especially when methylated cytosines occur in loops or flanking regions. Several biochemical studies report that 5-methylcytosine can stabilize or reshape particular G4 structures, although the direction and magnitude depend on sequence context. This means methylation is not only a possible outcome near G4s; it may also feed back on the probability or lifetime of G4 formation.
+
+For aging, this suggests a possible feedback mechanism. Small age-related methylation changes near a G4 motif could change local folding propensity, which could in turn alter accessibility to methyltransferases, demethylases, repair enzymes, or transcriptional regulators. The literature supports the existence of such molecular interactions, but not yet a universal rule that methylation near all G4s increases or changes faster with age.
+
+## Effects of G4s on methylation enzymes and chromatin machinery
+
+Several mechanistic observations make G4s relevant to DNA methylation control. G4 structures can impede or recruit DNA-binding proteins, affect replication fork progression, and create local single-stranded or structured DNA states. DNA methyltransferases, TET enzymes, methyl-CpG binding proteins, helicases such as DHX36/RHAU, and repair factors all operate in chromatin environments where DNA structure and accessibility matter.
+
+The clearest consensus is not that G4s directly instruct methylation at every nearby CpG, but that G4s can modify the local biochemical environment in which methylation is written, erased, copied, and interpreted. This is enough to justify testing whether methylation aging is faster near G4s, especially in regulatory regions that repeatedly show age-associated hypermethylation.
+
+# Evidence Connecting G4s, Aging, and Genome Maintenance
+
+G4s are linked to processes that deteriorate or become stressed with age: replication fidelity, DNA repair, oxidative damage handling, telomere maintenance, transcriptional regulation, and genome stability. Aging cells experience increased replication stress, altered chromatin state, mitochondrial and oxidative stress, and changes in DNA repair capacity. G4 structures can become barriers or signaling sites in several of these processes.
+
+This creates a mechanistic bridge from G4s to methylation aging. If G4 regions experience more frequent replication/repair conflicts or altered chromatin remodeling during aging, then maintenance methylation fidelity and active methylation-demethylation balance could shift locally. The bridge remains inferential, however. The literature supports G4 involvement in genome maintenance and supports methylation drift with age, but direct longitudinal or cross-sectional evidence connecting G4 proximity to age-related methylation-rate acceleration remains limited.
+
+# Current Consensus on the Project Hypothesis
+
+The current consensus can be summarized as four claims with different levels of certainty.
+
+| Claim | Consensus level | Relevance to hypothesis |
+|---|---:|---|
+| G4-forming sequences are enriched in CpG-rich promoters, CpG islands, and regulatory chromatin. | High | Provides strong genomic overlap between G4s and age-sensitive methylation contexts. |
+| DNA methylation and G4 formation can influence each other. | Moderate to high | Supports a plausible molecular mechanism, but effects are sequence- and context-dependent. |
+| Aging-associated CpG methylation changes are non-random and enriched at regulatory CpG islands, Polycomb/bivalent promoters, and developmental loci. | High | Indicates that age-related methylation drift is structured, not uniform. |
+| CpGs in or near G4s undergo faster age-related methylation change than matched non-G4 CpGs. | Low to moderate | This is a plausible, under-tested inference rather than a settled conclusion. |
+
+Thus, the literature supports the hypothesis as a strong candidate mechanism, not as an established fact. The consensus view would require careful wording: G4s likely identify a subset of regulatory DNA with high epigenetic vulnerability, but whether the G4 structure itself accelerates age-related methylation drift remains an open empirical question.
+
+# Mechanistic Models
+
+## Model 1: G4s as causal accelerators of methylation drift
+
+In the causal model, G4 structures directly alter methylation maintenance or remodeling. During aging, increased replication stress, DNA damage, altered helicase activity, or chromatin relaxation could increase G4 persistence. Persistent G4s could then change DNMT1 copying fidelity, DNMT3A/B recruitment, TET accessibility, repair-associated methylation remodeling, or transcription-factor occupancy. This predicts that CpGs inside or near stable G4s should show larger absolute age slopes than matched CpGs farther away.
+
+This model is attractive because it connects DNA secondary structure to epigenetic information loss. Its main weakness is specificity: many G4-associated regions are promoters and CpG islands, which already have distinctive methylation dynamics. Strong support requires showing that G4 proximity adds explanatory power after controlling for CpG density and chromatin state.
+
+## Model 2: G4s as markers of CpG-rich regulatory architecture
+
+In the marker model, G4s do not need to cause accelerated methylation drift. They co-occur with CpG islands, open promoters, bivalent chromatin, developmental regulators, and high-GC sequence. Age-related methylation changes may target these regulatory contexts for reasons independent of G4 folding. G4 proximity would still correlate with faster methylation aging, but it would not be mechanistically primary.
+
+This is the most conservative interpretation of the current literature. It predicts that the G4 signal should weaken substantially after matching on CpG density, promoter/CpG-island status, baseline methylation, chromatin state, and gene expression.
+
+## Model 3: Context-specific G4 vulnerability
+
+The most realistic model may be intermediate. G4s may accelerate methylation drift only in certain contexts: actively transcribed promoters, bivalent promoters, replication-stressed regions, telomeric or subtelomeric regions, enhancer subclasses, unstable G4s, or regions with altered G4-resolving helicase activity. This model predicts heterogeneity rather than a single genome-wide effect.
+
+For the BTEP project, this model suggests stratifying G4s by stability class, regulatory annotation, baseline methylation state, and tissue context rather than testing only a single binary G4-proximal versus distal contrast.
+
+# Methodological Implications for Testing the Hypothesis
+
+The local project already contains resources suited to the required test: hg38 G4Hunter stable and unstable BED files in `G4Hunter/`, and an existing pipeline script, `Entropy/pipeline/bin/g4_methylation_aging.R`, that bins Illumina 450K CpGs by distance to stable or unstable G4s, estimates per-probe methylation slopes with age, compares proximal and distal CpGs, and uses randomized G4 controls. This is well aligned with what the literature requires.
+
+For presentation and analysis, the most important design principles are:
+
+1. Estimate age-related methylation change per CpG as a slope, not only as a difference between age groups.
+2. Compare G4-proximal CpGs to matched genomic controls, not to arbitrary distal CpGs alone.
+3. Separate stable, unstable, predicted, and experimentally observed G4s when data allow.
+4. Adjust or stratify for CpG island status, promoter/enhancer annotation, baseline methylation, CpG density, chromatin state, replication timing, and cell composition.
+5. Test both direction-specific effects, such as hypermethylation, and absolute drift, because aging can include both gains and losses of methylation.
+6. Replicate across cohorts and platforms, ideally using a fixed 450K/EPIC probe intersection and, where possible, WGBS data for less biased coverage.
+
+# Expected Results If the Hypothesis Is True
+
+If G4s accelerate methylation aging, we would expect a distance gradient: CpGs inside or within approximately 500 bp to 1 kb of G4s should show larger age-associated methylation slopes, larger absolute methylation drift, or a higher fraction of significantly age-associated CpGs than CpGs farther away. The signal should exceed randomized G4 controls and persist after adjusting for promoter/CpG-island status and baseline methylation. A stronger effect near stable G4s would support a structure-based mechanism, whereas a stronger effect near unstable G4s might implicate dynamic folding, repair, or stress-sensitive regulatory regions.
+
+If the association disappears after genomic matching, the result would still be informative: it would imply that G4s mark methylation-aging-prone regulatory DNA but are not independently predictive beyond known epigenomic architecture. That outcome would refine, rather than invalidate, the biological story.
+
+# Literature Synthesis
+
+The field currently supports the following synthesis. G4s are concentrated in the same regulatory genomic compartments where age-related methylation changes are often strongest. Methylation can alter G4 folding, and G4s can alter the accessibility and behavior of proteins that maintain or remodel methylation. Aging increases stress on genome maintenance systems that are known to interact with G4 biology. These points converge on a coherent mechanistic hypothesis.
+
+However, the literature does not yet establish that G4 proximity independently accelerates CpG methylation aging across the human genome. The most serious limitation is confounding by GC content, CpG-island architecture, promoter status, chromatin state, and gene regulatory class. A rigorous study should therefore treat G4s as both candidate structures and genomic annotations requiring matched controls. The strongest result would show a reproducible distance-dependent methylation-aging effect near G4s that survives matching and is stronger for biologically credible G4 classes than for randomized loci.
+
+# Conclusion
+
+The current consensus is favorable but not definitive. The hypothesis is scientifically well motivated because it links three established observations: structured methylation aging, G4 enrichment in CpG-rich regulatory DNA, and mechanistic crosstalk between G4 structures and epigenetic regulation. The decisive question is whether G4 proximity contributes information beyond the regulatory architecture with which G4s co-localize.
+
+For a short presentation, the most accurate claim is: age-related CpG methylation changes may be faster in and around G4s, and this is plausible from current G4, methylation, and aging biology, but it remains an open hypothesis that requires distance-aware, matched-control analysis. The BTEP project is positioned to test exactly that gap.
+
+# Selected References
+
+- Ahuja N, Li Q, Mohan AL, Baylin SB, Issa JPJ. Aging and DNA methylation in colorectal mucosa and cancer. *Cancer Research*. 1998.
+- Bell CG, Lowe R, Adams PD, et al. DNA methylation aging clocks: challenges and recommendations. *Genome Biology*. 2019.
+- Chambers VS, Marsico G, Boutell JM, Di Antonio M, Smith GP, Balasubramanian S. High-throughput sequencing of DNA G-quadruplex structures in the human genome. *Nature Biotechnology*. 2015.
+- Hänsel-Hertsch R, Beraldi D, Lensing SV, et al. G-quadruplex structures mark human regulatory chromatin. *Nature Genetics*. 2016.
+- Hannum G, Guinney J, Zhao L, et al. Genome-wide methylation profiles reveal quantitative views of human aging rates. *Molecular Cell*. 2013.
+- Horvath S. DNA methylation age of human tissues and cell types. *Genome Biology*. 2013.
+- Issa JPJ. Aging and epigenetic drift: a vicious cycle. *Journal of Clinical Investigation*. 2014.
+- Kim J, Kim K, Kim H, et al. Age-related methylation signatures in the cancer methylome. *Genome Research*. 2014.
+- Lin Q, Wagner W. Epigenetic aging signatures are coherently modified in cancer. *PLoS Genetics*. 2015.
+- Mao SQ, Ghanbarian AT, Spiegel J, et al. DNA G-quadruplex structures mold the DNA methylome. *Nature Structural & Molecular Biology*. 2018.
+- Rakyan VK, Down TA, Maslau S, et al. Human aging-associated DNA hypermethylation occurs preferentially at bivalent chromatin domains. *Genome Research*. 2010.
+- Schlesinger Y, Straussman R, Keshet I, et al. Polycomb-mediated methylation on lysine 27 of histone H3 pre-marks genes for de novo methylation in cancer. *Nature Genetics*. 2007.
+- Teschendorff AE, Menon U, Gentry-Maharaj A, et al. Age-dependent DNA methylation of genes that are suppressed in stem cells is a hallmark of cancer. *Genome Research*. 2010.
+- Varizhuk A, Ischenko D, Tsvetkov V, et al. The expanding repertoire of G4 DNA structures and their biological roles. *Biochimie*. 2017.
+- Widschwendter M, Fiegl H, Egle D, et al. Epigenetic stem cell signature in cancer. *Nature Genetics*. 2007.

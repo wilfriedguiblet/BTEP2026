@@ -1,0 +1,372 @@
+---
+title: "G-richness adjustment attenuates associations between predicted G-quadruplexes and age-related DNA methylation"
+author: "CCRRBL-20 project team"
+date: "2026-09-11"
+bibliography: G4_methylation_paper.bib
+link-citations: true
+output:
+  html_document:
+    toc: false
+    number_sections: false
+    self_contained: true
+    theme: null
+    highlight: null
+    math_method: katex
+    md_extensions: "-implicit_figures"
+  github_document:
+    toc: false
+    html_preview: false
+    md_extensions: "-implicit_figures"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, error = FALSE)
+library(data.table)
+root <- "results/g4_methylation_age_quadron_100bp"
+minimal_prefix <- file.path(root, "minimal_model/quadron_minimal_stable_unstable_mean_beta")
+richness_prefix <- file.path(root, "minimal_model_strand_g_richness/quadron_minimal_strand_g_richness")
+asset_dir <- "G4_methylation_paper_files"
+data_dir <- file.path(asset_dir, "data")
+figure_dir <- file.path(asset_dir, "figures")
+dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+table_suffixes <- c("_g4_terms.csv", "_stable_minus_unstable.csv", "_coefficients.csv")
+assets <- data.table(
+  source = c(paste0(minimal_prefix, table_suffixes), paste0(richness_prefix, table_suffixes),
+             paste0(minimal_prefix, "_g4_terms.png"), paste0(richness_prefix, "_g4_terms.png")),
+  type = c(rep("table", 6L), rep("figure", 2L))
+)
+assets[, bundled := file.path(ifelse(type == "figure", figure_dir, data_dir), basename(source))]
+for (asset_index in seq_len(nrow(assets))) {
+  source_path <- assets$source[asset_index]
+  bundled_path <- assets$bundled[asset_index]
+  if (file.exists(source_path)) {
+    if (!file.copy(source_path, bundled_path, overwrite = TRUE)) stop("Cannot bundle ", source_path)
+  }
+  if (!file.exists(bundled_path)) stop("Missing manuscript evidence: ", source_path)
+}
+assets[, md5 := unname(tools::md5sum(bundled))]
+fwrite(assets, file.path(asset_dir, "source_manifest.csv"))
+
+read_result <- function(prefix, suffix) fread(file.path(data_dir, paste0(basename(prefix), suffix)))
+without_terms <- read_result(minimal_prefix, "_g4_terms.csv")
+with_terms <- read_result(richness_prefix, "_g4_terms.csv")
+without_contrasts <- read_result(minimal_prefix, "_stable_minus_unstable.csv")
+with_contrasts <- read_result(richness_prefix, "_stable_minus_unstable.csv")
+without_coefficients <- read_result(minimal_prefix, "_coefficients.csv")
+with_coefficients <- read_result(richness_prefix, "_coefficients.csv")
+minimal_figure <- file.path(figure_dir, paste0(basename(minimal_prefix), "_g4_terms.png"))
+richness_figure <- file.path(figure_dir, paste0(basename(richness_prefix), "_g4_terms.png"))
+minimal_formula <- "slope ~ has_stable_g4 + has_unstable_g4 + mean_beta"
+richness_formula <- paste(minimal_formula, "+ probe_strand_g_fraction + opposite_strand_g_fraction")
+expected_tissues <- c("adipose", "liver", "muscle")
+expected_predictors <- c("Stable G4", "Unstable G4")
+stopifnot(
+  nrow(without_terms) == 6L, nrow(with_terms) == 6L,
+  nrow(without_contrasts) == 3L, nrow(with_contrasts) == 3L,
+  all(without_contrasts$model == minimal_formula),
+  all(with_contrasts$model == richness_formula),
+  all(without_coefficients$model == minimal_formula),
+  all(with_coefficients$model == richness_formula),
+  all(without_contrasts$q_value > 0.05), all(with_contrasts$q_value > 0.05),
+  all(without_contrasts$p_value > 0.05), all(with_contrasts$p_value > 0.05),
+  identical(with_terms[q_value < 0.05, paste(tissue, predictor)], "muscle Stable G4"),
+  without_terms[tissue == "adipose", all(q_value > 0.05)],
+  without_terms[tissue != "adipose", all(q_value < 0.05)]
+)
+for (term_table in list(without_terms, with_terms)) {
+  stopifnot(uniqueN(term_table, by = c("tissue", "predictor")) == 6L)
+  stopifnot(all(is.finite(term_table$estimate)), all(term_table$std_error > 0))
+  stopifnot(isTRUE(all.equal(term_table$effect_per_decade, 10 * term_table$estimate)))
+  for (predictor_name in expected_predictors) {
+    predictor_rows <- term_table[predictor == predictor_name]
+    stopifnot(setequal(predictor_rows$tissue, expected_tissues))
+    stopifnot(isTRUE(all.equal(predictor_rows$q_value, p.adjust(predictor_rows$p_value, "BH"))))
+  }
+}
+for (contrast_table in list(without_contrasts, with_contrasts)) {
+  stopifnot(isTRUE(all.equal(contrast_table$q_value, p.adjust(contrast_table$p_value, "BH"))))
+}
+for (model_name in c("M0", "M1")) {
+  term_table <- if (model_name == "M0") without_terms else with_terms
+  contrast_table <- if (model_name == "M0") without_contrasts else with_contrasts
+  for (tissue_name in expected_tissues) {
+    stable_estimate <- term_table[tissue == tissue_name & predictor == "Stable G4", estimate]
+    unstable_estimate <- term_table[tissue == tissue_name & predictor == "Unstable G4", estimate]
+    stopifnot(isTRUE(all.equal(stable_estimate - unstable_estimate,
+                              contrast_table[tissue == tissue_name, estimate])))
+  }
+}
+
+cohort_spec <- data.table(tissue = expected_tissues,
+                         accession = c("GSE61257", "GSE61258", "GSE61259"))
+cohort_spec[, metadata_path := file.path(root, "prepared_inputs", paste0(accession, "_", tissue, "_metadata.csv"))]
+cohort_snapshot <- file.path(data_dir, "cohort_summary.csv")
+if (all(file.exists(cohort_spec$metadata_path))) {
+  cohort_summary <- rbindlist(lapply(seq_len(nrow(cohort_spec)), function(cohort_index) {
+    metadata <- fread(cohort_spec$metadata_path[cohort_index])
+    stopifnot(all(c("age", "sex", "bmi") %in% names(metadata)))
+    data.table(
+      tissue = cohort_spec$tissue[cohort_index], accession = cohort_spec$accession[cohort_index],
+      specimens = nrow(metadata), complete = sum(complete.cases(metadata[, .(age, sex, bmi)])),
+      age_min = min(metadata$age), age_max = max(metadata$age),
+      female = sum(tolower(metadata$sex) == "female"), male = sum(tolower(metadata$sex) == "male"),
+      bmi_min = min(metadata$bmi), bmi_max = max(metadata$bmi),
+      metadata_md5 = unname(tools::md5sum(cohort_spec$metadata_path[cohort_index]))
+    )
+  }))
+  fwrite(cohort_summary, cohort_snapshot)
+} else {
+  if (!file.exists(cohort_snapshot)) stop("Missing cohort metadata and bundled cohort summary")
+  cohort_summary <- fread(cohort_snapshot)
+}
+stopifnot(identical(cohort_summary$specimens, c(32L, 79L, 26L)),
+          all(cohort_summary$complete == cohort_summary$specimens),
+          all(cohort_summary$female + cohort_summary$male == cohort_summary$specimens))
+cohort_summary[, n_probes := without_contrasts$n_probes[match(tissue, without_contrasts$tissue)]]
+stopifnot(identical(with_contrasts$n_probes, without_contrasts$n_probes))
+
+select_term <- function(model_name, tissue_name, predictor_name) {
+  result_table <- if (model_name == "M0") without_terms else with_terms
+  result_row <- result_table[tissue == tissue_name & predictor == predictor_name]
+  stopifnot(nrow(result_row) == 1L)
+  result_row
+}
+format_scientific <- function(value, digits = 2L) {
+  stopifnot(length(value) == 1L, is.finite(value))
+  if (value == 0) return("0")
+  components <- strsplit(sprintf(paste0("%.", digits, "e"), value), "e", fixed = TRUE)[[1]]
+  paste0(components[1], " \\times 10^{", as.integer(components[2]), "}")
+}
+format_probability <- function(value) {
+  stopifnot(all(is.finite(value)), all(value >= 0 & value <= 1))
+  ifelse(value == 0, "below numeric precision", ifelse(value < 0.001, sprintf("%.2e", value), sprintf("%.3f", value)))
+}
+format_interval <- function(estimate, standard_error) {
+  sprintf("%.2f [%.2f, %.2f]", estimate * 1e5,
+          (estimate - 1.96 * standard_error) * 1e5,
+          (estimate + 1.96 * standard_error) * 1e5)
+}
+muscle_stable <- select_term("M1", "muscle", "Stable G4")
+muscle_unstable <- select_term("M1", "muscle", "Unstable G4")
+muscle_stable_reduction <- 100 * (1 - muscle_stable$estimate / select_term("M0", "muscle", "Stable G4")$estimate)
+muscle_unstable_reduction <- 100 * (1 - muscle_unstable$estimate / select_term("M0", "muscle", "Unstable G4")$estimate)
+writeLines(capture.output(sessionInfo()), file.path(asset_dir, "render_session_info.txt"))
+```
+
+```{r article-style, results='asis'}
+if (identical(knitr::pandoc_to(), "html")) {
+  cat('<style>
+  :root { color-scheme: light; }
+  body { margin: 0 auto; padding: 2.5rem 1.5rem 4rem; max-width: 1040px;
+    box-sizing: border-box; font: 17px/1.65 Georgia, "Times New Roman", serif;
+    background: #fff; color: #242424; letter-spacing: 0; }
+  h1, h2, h3 { line-height: 1.25; letter-spacing: 0; overflow-wrap: break-word; }
+  h1.title { font-size: 2rem; margin: 0 0 1rem; }
+  h1 { font-size: 1.55rem; margin-top: 2.2rem; }
+  h2 { font-size: 1.2rem; margin-top: 1.8rem; }
+  h3 { font-size: 1.05rem; }
+  p { margin: 0.85rem 0; }
+  a { color: #14586b; text-underline-offset: 0.15em; overflow-wrap: anywhere; }
+  img { max-width: 100%; height: auto; display: block; margin: 1.5rem auto 0.75rem; }
+  table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse;
+    font-size: 0.85rem; margin: 1rem 0; font-variant-numeric: tabular-nums; }
+  th, td { padding: 0.5rem 0.6rem; border-bottom: 1px solid #d7d7d7; }
+  th { text-align: left; border-top: 2px solid #505050; border-bottom: 1px solid #505050; }
+  pre { overflow-x: auto; padding: 0.8rem; background: #f4f6f6; font-size: 0.82rem; }
+  code { overflow-wrap: anywhere; }
+  .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.4rem 0; }
+  .references { font-size: 0.9rem; }
+  .csl-entry { margin-bottom: 0.7rem; }
+  @media (max-width: 600px) { body { padding: 1.2rem 1rem 3rem; } h1.title { font-size: 1.65rem; } }
+  @media print { body { max-width: none; padding: 0; font-size: 11pt; } img, table { break-inside: avoid; } }
+  </style>')
+}
+```
+
+# Abstract
+
+G-quadruplexes (G4s) can influence DNA methylation, but their enrichment in guanine-rich regulatory sequences complicates tests of an association with methylation aging. We examined whether Quadron-predicted G4 neighborhoods were associated with signed methylation-versus-age slopes and whether these associations persisted after local G-richness adjustment. This exploratory analysis used `r sum(cohort_summary$specimens)` human tissue specimens from adipose (`r cohort_summary[tissue == "adipose", specimens]`), liver (`r cohort_summary[tissue == "liver", specimens]`), and skeletal muscle (`r cohort_summary[tissue == "muscle", specimens]`). Sex- and body-mass-index-adjusted CpG age slopes were regressed on overlapping stable- and unstable-labelled Quadron indicators and mean methylation, first without and then with two strand-oriented G fractions. Before G-richness adjustment, both G4 indicators were positively associated with signed age slopes in liver and muscle, but not detectably in adipose. Adjustment reduced or reversed the coefficients. Only the stable-labelled muscle term retained a Benjamini-Hochberg-adjusted $q<0.05$: $`r format_scientific(muscle_stable$effect_per_decade)`$ beta units per decade (approximate 95% interval $`r format_scientific((muscle_stable$estimate - 1.96 * muscle_stable$std_error) * 10)`$ to $`r format_scientific((muscle_stable$estimate + 1.96 * muscle_stable$std_error) * 10)`$; $P=`r format_probability(muscle_stable$p_value)`$, $q=`r format_probability(muscle_stable$q_value)`$). Direct stable-minus-unstable contrasts were non-significant in every tissue under both models. Thus, much of the numerical G4 association is sensitive to local sequence composition. The residual muscle association is small and does not demonstrate a stability-class difference or a causal G4 effect. Shared subject identifiers, unresolved donor identity, probe dependence, and incomplete annotation provenance limit the strength of inference.
+
+**Keywords:** G-quadruplex; Quadron; DNA methylation; aging; guanine content; skeletal muscle
+
+# Introduction
+
+DNA methylation changes with age, but these changes are not distributed uniformly across the genome. Age-associated hypermethylation is enriched at particular regulatory compartments, including bivalent promoters, while other regions lose methylation [@rakyan2010]. The reproducibility of some CpG changes enables methylation-based age prediction [@horvath2013], but predictive accuracy does not establish which local molecular processes generate those changes. Identifying genomic features associated with methylation-versus-age slopes may help distinguish the sequence contexts in which methylation is maintained from those in which it is remodeled.
+
+G-quadruplexes are one candidate feature. These structures arise from stacked guanine tetrads and occur in sequences with the capacity to fold outside the canonical DNA duplex. G4-seq established a broad landscape of G4-forming potential in the human genome [@chambers2015], whereas chromatin mapping showed that detectable cellular G4s are concentrated in accessible regulatory regions and are influenced by transcriptional state [@hansel2016]. Consequently, a predicted G4 motif and an occupied G4 structure in a particular tissue are related but different biological quantities.
+
+There is a specific mechanistic basis for connecting G4s to methylation. Mao and colleagues linked G4 formation to CpG-island hypomethylation, demonstrated high-affinity DNMT1 binding to G4 structures, and showed that G4 folding could inhibit DNMT1 activity [@mao2018]. These findings establish a route by which DNA structure can affect methylation maintenance. They do not, however, predict a universal direction of age-associated change: a low mean methylation level, a positive age slope, and an increased absolute slope are distinct observations.
+
+Sequence composition is central to this distinction. G4-forming potential depends on guanine arrangement within a motif and its surroundings; the Quadron predictor explicitly learns sequence features related to experimental folding potential [@sahakyan2017]. The same G-rich surroundings may also mark methylation-relevant regulatory architecture. An association between predicted G4s and age slopes could therefore arise from structure, correlated sequence context, or both.
+
+Here, we ask whether associations between Quadron-labelled neighborhoods and signed methylation age slopes persist after adding local strand-oriented G fractions to a mean-methylation-adjusted model. We analyze adipose, liver, and skeletal muscle separately using public 450K methylation data from an obesity-related tissue study [@horvath2014]. Two questions are kept distinct: whether each G4 annotation is associated with an age-slope shift, and whether the stable- and unstable-labelled annotations differ directly. This comparison tests sensitivity to measured G-richness; it is not a genome-wide test of G4 causality or an epigenetic-clock analysis.
+
+# Materials and methods
+
+## Study material and analytical population
+
+Processed Illumina HumanMethylation450 beta matrices and prepared sample metadata were drawn from GSE61257 (adipose), GSE61258 (liver), and GSE61259 (muscle), within the GSE61256 study family [@horvath2014]. The prepared analysis inputs contained 32, 79, and 26 specimens, respectively (Table 1). All had complete age, sex, and BMI metadata. The available tissues were not matched population samples: in particular, the muscle series comprised specimens with BMI between `r sprintf("%.1f", cohort_summary[tissue == "muscle", bmi_min])` and `r sprintf("%.1f", cohort_summary[tissue == "muscle", bmi_max])` kg/m². No claim of healthy-population representativeness is made.
+
+Some subject identifiers occur in more than one tissue series. An identifier also recurs with inconsistent demographics within the adipose metadata. We therefore report specimen counts rather than a verified count of unique participants, analyze tissues separately, and do not interpret the three series as independent replication cohorts. The prepared beta matrices, rather than newly reprocessed IDATs, were used; the retained minimal-model outputs do not establish a complete upstream normalization or probe-QC history.
+
+**Table 1. Prepared tissue specimens and probe sets used in the two models.** Counts are metadata-eligible specimens, not independent donors. Individual CpG fits additionally required finite beta observations. Both second-stage models used the same number of CpGs within each tissue.
+
+```{r cohort-table, results='asis'}
+cohort_display <- cohort_summary[, .(
+  Tissue = c("Adipose", "Liver", "Skeletal muscle"),
+  GEO = accession, Specimens = specimens,
+  `Age (years)` = paste0(age_min, "-", age_max),
+  `Female/male` = paste0(female, "/", male),
+  `BMI (kg/m²)` = sprintf("%.1f-%.1f", bmi_min, bmi_max),
+  CpGs = format(n_probes, big.mark = ",", scientific = FALSE, trim = TRUE)
+)]
+knitr::kable(cohort_display, format = "pipe", row.names = FALSE)
+```
+
+## CpG-specific methylation age slopes
+
+Within each tissue, beta-matrix columns were matched to metadata by sample identifier. For CpG $i$, specimen $j$, and tissue $t$, ordinary least squares estimated
+
+$$
+\beta_{ijt}=\alpha_{it}+b_{it}\operatorname{Age}_{jt}
++\gamma_{it}\operatorname{Sex}_{jt}+\eta_{it}\operatorname{BMI}_{jt}+\epsilon_{ijt}.
+$$
+
+Each fit required more finite observations than fitted design columns, ordinarily at least five for the intercept-age-sex-BMI design. The estimated coefficient $\hat b_{it}$, in beta units per year, was the second-stage response. Its sign distinguishes a more positive from a more negative age association; it does not measure stochastic variability or an individual's longitudinal change. The probe universe was restricted by the project's gene-annotated hg38 manifest and finite fitted slopes, rather than encompassing every array probe or every genomic CpG.
+
+Mean methylation, $\bar\beta_{it}$, was calculated for each CpG within each tissue over the available specimens. This is a same-dataset mean, not a pre-aging baseline or an independently observed reference. Both reported annotation models condition on this mean.
+
+## Quadron neighborhood and sequence annotations
+
+The analysis used hg38 Quadron interval files supplied under stable and unstable labels. Quadron predicts sequence-driven G4-forming propensity from experimental training data [@sahakyan2017]; these input classes are not measurements of G4 occupancy or thermodynamic stability in the assayed tissues. The original class-assignment cutoff and input-generation version were not recoverable from the retained regression artifacts, so labels are used descriptively rather than assigned an assumed threshold.
+
+Each input interval was padded by 100 bp on both sides. Overlapping or adjacent intervals were merged, and probes inherited the stable and unstable annotations present anywhere within their assigned merged neighborhood. Indicators $S_i$ and $U_i$ could both equal one; they did not impose mutually exclusive classes. A probe assigned to a mixed neighborhood need not directly overlap a motif of each class. Neighborhood annotation was unstranded, and broad merged clusters were retained in the minimal analyses rather than modeled with a separate density coefficient.
+
+The sequence correction used hg38 reference G and C fractions, expressed relative to the annotated probe strand. On a plus-strand probe, the probe-oriented G fraction is reference G and the opposite-strand G fraction is reference C; the assignments are reversed on a minus-strand probe. Their sum is local GC fraction. They represent local base composition and orientation, not transcriptional strand or two independently assayed molecular strands. The implementation extracts sequence around the probe midpoint with a default 1,000-bp flank, ordinarily a 2,001-bp inclusive window and distinct from the 100-bp G4 padding. The retained coefficient files do not record whether that default was overridden at execution. In addition, the original BED/manifest coordinate convention and hg19-derived probe-strand concordance with hg38 were not independently revalidated for this manuscript.
+
+## Two nested annotation models
+
+The mean-methylation-adjusted model (M0, without G-richness correction) was
+
+$$
+\hat b_{it}=a_t+\theta_{S,t}S_i+\theta_{U,t}U_i+\lambda_t\bar\beta_{it}+e_{it}.
+$$
+
+The G-richness-adjusted model (M1) added only the two strand-oriented fractions:
+
+$$
+\hat b_{it}=a_t+\theta_{S,t}S_i+\theta_{U,t}U_i+\lambda_t\bar\beta_{it}
++\delta_{P,t}G^{\mathrm{probe}}_i+\delta_{O,t}G^{\mathrm{opposite}}_i+e_{it}.
+$$
+
+Both were unweighted ordinary least-squares regressions across CpGs, fitted separately by tissue. Neither included a stable-by-unstable interaction, motif density, long-cluster status, CpG-island category, chromatin state, RepeatMasker class, or replication timing. Each G4 coefficient estimates an additive annotation-associated difference in the signed age slope conditional on the other G4 indicator and the included covariates. It is not the mean age slope of a purified stable-only or unstable-only region set. Both models are exploratory retained analyses, without a claim of prospective preregistration.
+
+## Statistical inference and reporting
+
+For each model, the implementation applied Benjamini-Hochberg adjustment across the three tissues separately for each coefficient term [@benjamini1995]. Thus, the reported $q$ values for stable and unstable terms belong to separate three-test families, not a combined family covering both annotations, both models, or the history of model exploration. Direct contrasts $\Delta_{S-U,t}=\theta_{S,t}-\theta_{U,t}$ used the fitted coefficient covariance matrix, with a separate three-tissue BH family per model.
+
+Effects were multiplied by ten to express annotation-associated slope differences per decade. Figure whiskers and table intervals are approximate model-based 95% intervals, $(\hat\theta\pm1.96\,\mathrm{SE})\times10$, not simultaneous confidence intervals. Numerical attenuation between M0 and M1 is descriptive; no causal fraction or formal test of between-model coefficient change was estimated. First-stage slope uncertainty, spatial CpG correlation, and shared-specimen dependence were not propagated through the second-stage regressions. Their P values and intervals therefore describe the implemented model, not dependence-robust population evidence.
+
+# Results
+
+## Positive G4-associated age-slope shifts in liver and muscle before G-richness adjustment
+
+The retained models analyzed `r format(cohort_summary[tissue == "adipose", n_probes], big.mark = ",", trim = TRUE)` CpGs in adipose and muscle and `r format(cohort_summary[tissue == "liver", n_probes], big.mark = ",", trim = TRUE)` in liver. With mean methylation included but no G-richness terms, both Quadron indicators were positive in all three tissues (Figure 1; Table 2). Adipose estimates were small and did not meet the saved $q<0.05$ criterion. Liver estimates were $`r format_scientific(select_term("M0", "liver", "Stable G4")$effect_per_decade)`$ beta units per decade for the stable indicator and $`r format_scientific(select_term("M0", "liver", "Unstable G4")$effect_per_decade)`$ for the unstable indicator. The largest coefficients occurred in muscle: $`r format_scientific(select_term("M0", "muscle", "Stable G4")$effect_per_decade)`$ and $`r format_scientific(select_term("M0", "muscle", "Unstable G4")$effect_per_decade)`$, respectively. Both indicators met the saved BH criterion in liver and muscle.
+
+These positive coefficients indicate a shift toward a more positive signed age slope conditional on mean methylation and the other indicator. They do not establish that all annotated CpGs gain methylation, that absolute age-related change is greater, or that one tissue differs significantly from another.
+
+```{r figure-mean-beta, results='asis'}
+cat(sprintf("![Quadron mean-methylation-adjusted stable and unstable annotation coefficients in adipose, liver, and muscle](%s)\n\n", minimal_figure))
+```
+
+**Figure 1. Quadron annotation-associated shifts in signed methylation age slopes without G-richness correction.** The original `quadron_minimal_stable_unstable_mean_beta_g4_terms` figure is reproduced. M0 contains stable and unstable neighborhood indicators and within-tissue mean beta; the underlying age slopes were adjusted for sex and BMI. Green and orange bars represent the stable- and unstable-labelled indicator coefficients multiplied by ten. Whiskers are approximate model-based 95% intervals. Stars refer to each term's BH-adjusted P across tissues: * $q<0.05$, ** $q<0.01$, *** $q<0.001$; ns denotes $q\geq0.05$. They do not test the difference between the two bars. All neighborhoods are retained; the labels do not identify experimentally verified structures in these tissues.
+
+## Local G-richness adjustment reduces the associations
+
+Adding the two local G fractions changed the magnitude and, in some cases, the sign of the G4 coefficients (Figure 2; Table 2). Both adipose terms became slightly negative and remained non-significant. In liver, the stable term changed sign to $`r format_scientific(select_term("M1", "liver", "Stable G4")$effect_per_decade)`$ beta units per decade, while the unstable term decreased to $`r format_scientific(select_term("M1", "liver", "Unstable G4")$effect_per_decade)`$. Neither liver term was distinguishable from zero by its nominal test or the saved BH criterion.
+
+Muscle coefficients remained positive but decreased by `r sprintf("%.1f", muscle_stable_reduction)`% for the stable indicator and `r sprintf("%.1f", muscle_unstable_reduction)`% for the unstable indicator. The adjusted stable estimate was $`r format_scientific(muscle_stable$effect_per_decade)`$ beta units per decade (95% interval $`r format_scientific((muscle_stable$estimate - 1.96 * muscle_stable$std_error) * 10)`$ to $`r format_scientific((muscle_stable$estimate + 1.96 * muscle_stable$std_error) * 10)`$; $P=`r format_probability(muscle_stable$p_value)`$, $q=`r format_probability(muscle_stable$q_value)`$). This corresponds to an annotation-associated difference of approximately `r sprintf("%.4f", muscle_stable$effect_per_decade * 100)` percentage points of methylation per decade, not an observed within-person change. The unstable estimate was $`r format_scientific(muscle_unstable$effect_per_decade)`$ ($P=`r format_probability(muscle_unstable$p_value)`$, $q=`r format_probability(muscle_unstable$q_value)`$): nominally significant, but above the saved BH threshold.
+
+```{r figure-g-richness, results='asis'}
+cat(sprintf("![Quadron mean-methylation and strand-G-richness-adjusted annotation coefficients and direct class contrasts](%s)\n\n", richness_figure))
+```
+
+**Figure 2. Quadron annotation-associated shifts after strand-oriented G-richness adjustment.** The original `quadron_minimal_strand_g_richness_g4_terms` figure is reproduced. M1 is M0 plus probe-oriented and opposite-strand G fractions; no chromatin or G4-density covariate is added. Bar units, intervals, colors, and term-star definitions are as in Figure 1. The brackets represent direct stable-minus-unstable contrasts, tested using coefficient covariance and BH-adjusted separately across tissues. All bracket contrasts are non-significant. The y-axis scale differs from Figure 1; numerical comparisons should use Table 2. A significant stable term and a non-significant unstable term in muscle do not establish a difference between classes.
+
+**Table 2. G4 annotation coefficients before and after local G-richness adjustment.** Effects and approximate 95% intervals are in units of $10^{-4}$ beta per decade. M0 adjusts for mean methylation; M1 additionally adjusts for the two G fractions. The $q$ values use the saved within-term, three-tissue BH families.
+
+```{r annotation-table, results='asis'}
+paired_terms <- merge(without_terms, with_terms, by = c("tissue", "predictor"), suffixes = c("_M0", "_M1"))
+paired_terms[, tissue_order := match(tissue, expected_tissues)]
+paired_terms[, predictor_order := match(predictor, expected_predictors)]
+setorder(paired_terms, tissue_order, predictor_order)
+annotation_display <- paired_terms[, .(
+  Tissue = tissue, Annotation = predictor,
+  `M0 effect [95% interval]` = format_interval(estimate_M0, std_error_M0),
+  `M0 q` = format_probability(q_value_M0),
+  `M1 effect [95% interval]` = format_interval(estimate_M1, std_error_M1),
+  `M1 q` = format_probability(q_value_M1)
+)]
+knitr::kable(annotation_display, format = "pipe", row.names = FALSE)
+```
+
+## Direct comparisons do not distinguish stable and unstable annotations
+
+None of the direct stable-minus-unstable contrasts was significant under either model (Table 3). After G-richness adjustment, nominal contrast P values were `r format_probability(with_contrasts[tissue == "adipose", p_value])` in adipose, `r format_probability(with_contrasts[tissue == "liver", p_value])` in liver, and `r format_probability(with_contrasts[tissue == "muscle", p_value])` in muscle. In particular, the residual stable-labelled muscle term was not detectably larger than the unstable-labelled term. The comparison does not establish equivalence, but it prevents interpreting the different term-significance labels as evidence for a stability-specific effect.
+
+**Table 3. Direct stable-minus-unstable contrasts within the two retained models.** Effects and intervals are in units of $10^{-4}$ beta per decade. Intervals use the saved contrast SE, which incorporates covariance between the two coefficients. Contrast $q$ values were adjusted across the three tissues separately within each model.
+
+```{r contrast-table, results='asis'}
+contrast_results <- rbindlist(list(
+  cbind(Model = "M0", without_contrasts),
+  cbind(Model = "M1", with_contrasts)
+))
+contrast_display <- contrast_results[, .(
+  Model, Tissue = tissue,
+  `Stable minus unstable [95% interval]` = format_interval(estimate, std_error),
+  P = format_probability(p_value), q = format_probability(q_value)
+)]
+knitr::kable(contrast_display, format = "pipe", row.names = FALSE)
+```
+
+# Discussion
+
+The main finding is the sensitivity of G4-associated methylation age slopes to local G-richness. A model containing only the two Quadron indicators and mean methylation yielded positive liver and muscle associations. Adding two sequence-composition covariates substantially reduced those estimates, removed detectable liver associations, and left a small stable-labelled muscle term under the saved multiple-testing correction. Direct contrasts did not distinguish stable from unstable annotations in any tissue. Taken together, the results favor an interpretation centered on sequence context and a limited residual association, rather than a general stability-dependent methylation-aging mechanism.
+
+This sensitivity is biologically plausible without identifying its cause. G-rich sequence helps determine G4-forming propensity, and G4-prone regions overlap regulatory chromatin [@sahakyan2017; @hansel2016]. Adjustment can therefore absorb variation attributable to correlated regulatory features, but it can also condition on sequence properties integral to the proposed structural mechanism. The coefficient contraction cannot be assigned wholly to confounding, nor can it be interpreted as a measured proportion of methylation aging caused by base composition. The models show which associations survive a particular linear conditioning set.
+
+The residual muscle result requires equally careful interpretation. Its effect is small on the beta scale, and the stable-minus-unstable comparison is non-significant. Thus, the result does not support the claim that stable structures have an effect absent from unstable structures. It also does not establish muscle specificity: the tissues were modeled separately, have different age and BMI distributions, and include shared subject identifiers. A test of whether coefficients differ across tissues would require a joint, donor-aware design and was not performed here. Replication in an independent, better-characterized muscle population is more informative than treating the three tissue series as interchangeable confirmations.
+
+The association should also be distinguished from the mechanistic observations that motivated it. G4-dependent DNMT1 inhibition and CpG-island hypomethylation concern local methylation control [@mao2018]. Here, the response is a cross-sectional signed age slope conditional on mean methylation. A positive G4 coefficient could indicate a greater tendency toward methylation gain or less pronounced methylation loss relative to comparable annotated probes. It does not measure G4 occupancy, DNMT1 activity, stochastic drift, or absolute age-slope magnitude. The present findings neither demonstrate nor refute the proposed biochemical mechanism.
+
+Several limitations constrain inference. Hundreds of thousands of CpGs provide many regression observations but do not replace the small number of biological specimens. Spatial correlation, shared sample-level estimation error, and heterogeneous precision of CpG slopes were not modeled in the second stage. The reported SEs and BH values should therefore not be read as dependency-robust validation. Moreover, mean beta is estimated from the same specimens as the slopes and entered linearly; residual nonlinear dependence on mean methylation may remain. Neither reported model controls for cell composition, CpG-island architecture, tissue-matched chromatin, or technical batch. The obesity-related recruitment and restricted muscle age/BMI range further limit population generalization.
+
+Reproducibility limitations are distinct from these statistical limitations. The original Quadron class cutoff, execution-time sequence-window setting, upstream preprocessing details, and coordinate/strand convention were not completely recoverable from the retained artifacts. Merged neighborhoods also represent a regional annotation, not guaranteed direct proximity to every contributing motif. The manuscript preserves the two result sets as generated rather than retrospectively changing their definitions. These gaps need resolution before a coordinate-exact or stability-specific biological claim is made.
+
+The next decisive analyses should first resolve sample identity and freeze the annotation and coordinate definitions. An independent tissue dataset could then test the same estimands with donor resampling and genomic-block uncertainty, propagating first-stage slope error and assessing nonlinear mean-methylation effects. Tissue-matched G4 measurements would separate sequence potential from structural occupancy. Finally, structure-disrupting changes that preserve local base composition, coupled to methylation measurements, would offer a more discriminating causal test than another association model. None of these validations is claimed to have been performed here.
+
+# Conclusion
+
+In these human tissue datasets, local G-richness adjustment markedly weakens associations between Quadron-predicted G4 neighborhoods and signed methylation age slopes. A small residual stable-labelled muscle association remains under the implemented model, but neither retained analysis demonstrates a stable-versus-unstable difference. The evidence supports a sequence-context-sensitive association and a focused replication target, not a general claim that G4 stability determines the rate of methylation aging.
+
+# Data and code availability
+
+The source series are [GSE61257](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61257), [GSE61258](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61258), and [GSE61259](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61259). Age-slope fitting and the two annotation models are implemented in [bin/analyze_g4_methylation_age.R](bin/analyze_g4_methylation_age.R) and [bin/compare_g4_effects_adjusted.R](bin/compare_g4_effects_adjusted.R); the Quadron input configuration is [params_GSE61256_quadron.yaml](params_GSE61256_quadron.yaml).
+
+The six retained model tables, aggregate cohort summary, and unchanged original figure PNGs are bundled alongside this manuscript so that the Markdown does not depend on an ignored results directory. [G4_methylation_paper_files/source_manifest.csv](G4_methylation_paper_files/source_manifest.csv) maps each model/figure artifact to its source and MD5 checksum. The full [M0 coefficients](G4_methylation_paper_files/data/quadron_minimal_stable_unstable_mean_beta_coefficients.csv) and [M1 coefficients](G4_methylation_paper_files/data/quadron_minimal_strand_g_richness_coefficients.csv) retain the exact formulas and unrounded results. [G4_methylation_paper_files/render_session_info.txt](G4_methylation_paper_files/render_session_info.txt) records the document-rendering environment, not the original analysis environment. These files reproduce the manuscript from saved outputs; re-estimating the scientific models additionally requires the original beta matrices and annotation provenance.
+
+From the BTEP directory, [render_G4_methylation_paper.R](render_G4_methylation_paper.R) regenerates the Markdown and embeds the figure and math resources into the HTML. Rendering requires the documented R packages and internet access for the KaTeX dependency; the completed HTML can be read offline:
+
+```r
+source("render_G4_methylation_paper.R")
+```
+
+# Ethics statement
+
+This work is a secondary analysis of publicly released processed data. No new human specimens were collected. Recruitment, consent, and original study oversight are described by the source study [@horvath2014].
+
+# References
+
+::: {#refs}
+:::

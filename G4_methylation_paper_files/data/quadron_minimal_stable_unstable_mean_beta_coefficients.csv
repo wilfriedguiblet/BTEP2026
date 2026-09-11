@@ -1,0 +1,13 @@
+term,estimate,std_error,statistic,p_value,tissue,density_group,n_probes,model,q_value
+(Intercept),2.92833183369459e-05,1.82630808746348e-06,16.0341612337801,7.70658676049537e-58,adipose,all,381175,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,7.70658676049537e-58
+has_stable_g4TRUE,8.22533436215722e-06,4.84899189151718e-06,1.69629781739718,0.0898303101727464,adipose,all,381175,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,0.0898303101727464
+has_unstable_g4TRUE,8.65111486301234e-06,4.79216976976321e-06,1.80526051426592,0.0710347141289482,adipose,all,381175,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,0.0710347141289482
+mean_beta,-0.000167042643538399,3.25032769129144e-06,-51.3925546602437,0,adipose,all,381175,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,0
+(Intercept),0.000396699310302857,1.58154062540519e-06,250.830932781903,0,liver,all,381179,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,0
+has_stable_g4TRUE,2.74418930966215e-05,4.12721679515675e-06,6.64900693581794,2.95472527208887e-11,liver,all,381179,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,4.4320879081333e-11
+has_unstable_g4TRUE,3.61332734953442e-05,4.07893337001654e-06,8.85851035492587,8.14271699791246e-19,liver,all,381179,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,2.44281509937374e-18
+mean_beta,-0.000885868336012515,2.75788488062587e-06,-321.212949182809,0,liver,all,381179,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,0
+(Intercept),-0.000151680503282007,2.6050340349586e-06,-58.2259199866529,0,muscle,all,381175,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,0
+has_stable_g4TRUE,6.09464780002135e-05,6.91213286507525e-06,8.81731864677487,1.17710798208601e-18,muscle,all,381175,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,3.53132394625803e-18
+has_unstable_g4TRUE,5.49656454665197e-05,6.83121501310283e-06,8.04624731633994,8.56135977147155e-16,muscle,all,381175,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,1.28420396572073e-15
+mean_beta,-4.12502050746247e-05,4.8106371703597e-06,-8.57479032689974,9.9629583281452e-18,muscle,all,381175,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,9.9629583281452e-18

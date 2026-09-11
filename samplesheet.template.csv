@@ -1,0 +1,4 @@
+cohort,tissue,beta_matrix,metadata,age_col,sample_id_col,covariates
+GSE61257,adipose,prepared_inputs/GSE61257_adipose_beta.rds,prepared_inputs/GSE61257_adipose_metadata.csv,age,sample_id,sex|bmi
+GSE61258,liver,prepared_inputs/GSE61258_liver_beta.rds,prepared_inputs/GSE61258_liver_metadata.csv,age,sample_id,sex|bmi
+GSE61259,muscle,prepared_inputs/GSE61259_muscle_beta.rds,prepared_inputs/GSE61259_muscle_metadata.csv,age,sample_id,sex|bmi

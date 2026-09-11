@@ -1,0 +1,4 @@
+tissue,density_group,contrast,contrast_estimable,estimate,std_error,statistic,p_value,effect_per_decade,n_probes,model,q_value
+adipose,all,stable_minus_unstable,TRUE,-4.25780500855119e-07,7.91832829857631e-06,-0.0537715139863136,0.957117233399489,-4.25780500855119e-06,381175,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,0.957117233399489
+liver,all,stable_minus_unstable,TRUE,-8.69138039872269e-06,6.73962615848778e-06,-1.28959384309127,0.19719249700667,-8.69138039872269e-05,381179,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,0.591577491020011
+muscle,all,stable_minus_unstable,TRUE,5.98083253369376e-06,1.12874254176316e-05,0.529866848497742,0.596204561325693,5.98083253369376e-05,381175,slope ~ has_stable_g4 + has_unstable_g4 + mean_beta,0.89430684198854

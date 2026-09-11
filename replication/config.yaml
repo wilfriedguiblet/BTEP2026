@@ -1,0 +1,46 @@
+# Paths are relative to BTEP, not to this YAML file or the calling shell.
+# Absolute paths are also allowed when checkpoints live on a cluster.
+source_root: results/g4_methylation_age_quadron_100bp
+output_root: results/quadron_paper_reproduction
+expected_tables: G4_methylation_paper_files/data
+
+# The saved slope checkpoints are the most reliable starting point. Rebuilding
+# slopes additionally needs a compatible manifest. This local path matched all
+# saved coordinates and regenerated slope tables in the validated prepared run;
+# its historical source identity is still not certified. The runner checks the
+# mapped subset and all rebuilt slopes against the saved checkpoint each time.
+probe_manifest: ../results/submission_v3/reference_manifest/probe_gene_manifest.csv.gz
+
+# Only the optional source-level route needs the original class-separated BEDs.
+# Fill these in explicitly; do not substitute other prediction methods or infer
+# a stability threshold. The local record did not recover the original cutoff.
+quadron_stable_bed: null
+quadron_unstable_bed: null
+
+# Frozen local GEO series matrices allow offline preparation. A missing entry
+# requires --allow-downloads with --mode source; the runner never downloads
+# implicitly. These are processed series matrices, not raw Illumina IDAT files.
+series_matrices:
+  GSE61257: null
+  GSE61258: null
+  GSE61259: null
+
+# The two windows answer different questions. Do not confuse their sizes.
+g4_flank_bp: 100
+long_quantile: 0.99
+long_mad_multiplier: 3
+long_min_bp: 0
+# 1000 is the implementation default, NOT a recovered historical command. This
+# explicit setting reproduced all six paper tables in both validated routes.
+# Numerical agreement remains the gate whenever inputs or environment change.
+sequence_flank_bp: 1000
+
+age_column: age
+sample_column: sample_id
+covariates: [sex, bmi]
+minimum_samples: 2
+
+# Fixed table-comparison tolerances, not statistical significance thresholds.
+# P/q values are compared relatively, including tiny values (no 1e-12 floor).
+absolute_tolerance: 1.0e-12
+relative_tolerance: 1.0e-7
