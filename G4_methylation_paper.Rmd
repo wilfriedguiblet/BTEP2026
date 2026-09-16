@@ -22,31 +22,41 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, error = FALSE)
 library(data.table)
-root <- "results/g4_methylation_age_quadron_100bp"
-minimal_prefix <- file.path(root, "minimal_model/quadron_minimal_stable_unstable_mean_beta")
-richness_prefix <- file.path(root, "minimal_model_strand_g_richness/quadron_minimal_strand_g_richness")
+minimal_prefix <- "quadron_minimal_stable_unstable_mean_beta"
+richness_prefix <- "quadron_minimal_strand_g_richness"
 asset_dir <- "G4_methylation_paper_files"
 data_dir <- file.path(asset_dir, "data")
 figure_dir <- file.path(asset_dir, "figures")
-dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
-table_suffixes <- c("_g4_terms.csv", "_stable_minus_unstable.csv", "_coefficients.csv")
-assets <- data.table(
-  source = c(paste0(minimal_prefix, table_suffixes), paste0(richness_prefix, table_suffixes),
-             paste0(minimal_prefix, "_g4_terms.png"), paste0(richness_prefix, "_g4_terms.png")),
-  type = c(rep("table", 6L), rep("figure", 2L))
-)
-assets[, bundled := file.path(ifelse(type == "figure", figure_dir, data_dir), basename(source))]
-for (asset_index in seq_len(nrow(assets))) {
-  source_path <- assets$source[asset_index]
-  bundled_path <- assets$bundled[asset_index]
-  if (file.exists(source_path)) {
-    if (!file.copy(source_path, bundled_path, overwrite = TRUE)) stop("Cannot bundle ", source_path)
-  }
-  if (!file.exists(bundled_path)) stop("Missing manuscript evidence: ", source_path)
+# Rendering reads frozen reference assets; it never refits models or overwrites
+# the reference tables/figures with a new run. main.nf owns all analysis stages.
+assets <- fread(file.path(asset_dir, "source_manifest.csv"))
+stopifnot(nrow(assets) == 8L, all(file.exists(assets$bundled)),
+          all(unname(tools::md5sum(assets$bundled)) == assets$md5))
+
+# Complete offline HTML in the Rmd itself using R Markdown's supported hook.
+# No separate rendering script is required. Only display resources are embedded;
+# web citations remain ordinary links. Network access is needed at render time.
+if (identical(knitr::pandoc_to(), "html")) {
+  knitr::knit_meta_add(list(rmarkdown::output_format_dependency(
+    "paper-offline-html",
+    post_processor = function(metadata, input_file, output_file, clean, verbose) {
+      target <- normalizePath(output_file, mustWork = TRUE)
+      document <- xml2::read_html(target)
+      dependencies <- xml2::xml_find_all(document, "//script[@src] | //link[@rel='stylesheet']")
+      xml2::xml_attr(dependencies, "data-external") <- NULL
+      temporary <- tempfile("paper_render_", tmpdir = dirname(target), fileext = ".html")
+      on.exit(unlink(temporary), add = TRUE)
+      xml2::write_html(document, temporary)
+      rmarkdown::pandoc_self_contained_html(temporary, target)
+      rendered <- xml2::read_html(target)
+      resources <- c(xml2::xml_attr(xml2::xml_find_all(rendered, "//script[@src] | //img[@src]"), "src"),
+                     xml2::xml_attr(xml2::xml_find_all(rendered, "//link[@rel='stylesheet']"), "href"))
+      stopifnot(all(startsWith(resources, "data:")),
+                length(xml2::xml_find_all(rendered, "//img")) == 2L)
+      output_file
+    }
+  )))
 }
-assets[, md5 := unname(tools::md5sum(bundled))]
-fwrite(assets, file.path(asset_dir, "source_manifest.csv"))
 
 read_result <- function(prefix, suffix) fread(file.path(data_dir, paste0(basename(prefix), suffix)))
 without_terms <- read_result(minimal_prefix, "_g4_terms.csv")
@@ -98,28 +108,7 @@ for (model_name in c("M0", "M1")) {
   }
 }
 
-cohort_spec <- data.table(tissue = expected_tissues,
-                         accession = c("GSE61257", "GSE61258", "GSE61259"))
-cohort_spec[, metadata_path := file.path(root, "prepared_inputs", paste0(accession, "_", tissue, "_metadata.csv"))]
-cohort_snapshot <- file.path(data_dir, "cohort_summary.csv")
-if (all(file.exists(cohort_spec$metadata_path))) {
-  cohort_summary <- rbindlist(lapply(seq_len(nrow(cohort_spec)), function(cohort_index) {
-    metadata <- fread(cohort_spec$metadata_path[cohort_index])
-    stopifnot(all(c("age", "sex", "bmi") %in% names(metadata)))
-    data.table(
-      tissue = cohort_spec$tissue[cohort_index], accession = cohort_spec$accession[cohort_index],
-      specimens = nrow(metadata), complete = sum(complete.cases(metadata[, .(age, sex, bmi)])),
-      age_min = min(metadata$age), age_max = max(metadata$age),
-      female = sum(tolower(metadata$sex) == "female"), male = sum(tolower(metadata$sex) == "male"),
-      bmi_min = min(metadata$bmi), bmi_max = max(metadata$bmi),
-      metadata_md5 = unname(tools::md5sum(cohort_spec$metadata_path[cohort_index]))
-    )
-  }))
-  fwrite(cohort_summary, cohort_snapshot)
-} else {
-  if (!file.exists(cohort_snapshot)) stop("Missing cohort metadata and bundled cohort summary")
-  cohort_summary <- fread(cohort_snapshot)
-}
+cohort_summary <- fread(file.path(data_dir, "cohort_summary.csv"))
 stopifnot(identical(cohort_summary$specimens, c(32L, 79L, 26L)),
           all(cohort_summary$complete == cohort_summary$specimens),
           all(cohort_summary$female + cohort_summary$male == cohort_summary$specimens))
@@ -151,7 +140,6 @@ muscle_stable <- select_term("M1", "muscle", "Stable G4")
 muscle_unstable <- select_term("M1", "muscle", "Unstable G4")
 muscle_stable_reduction <- 100 * (1 - muscle_stable$estimate / select_term("M0", "muscle", "Stable G4")$estimate)
 muscle_unstable_reduction <- 100 * (1 - muscle_unstable$estimate / select_term("M0", "muscle", "Unstable G4")$estimate)
-writeLines(capture.output(sessionInfo()), file.path(asset_dir, "render_session_info.txt"))
 ```
 
 ```{r article-style, results='asis'}
@@ -352,14 +340,14 @@ In these human tissue datasets, local G-richness adjustment markedly weakens ass
 
 # Data and code availability
 
-The source series are [GSE61257](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61257), [GSE61258](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61258), and [GSE61259](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61259). Age-slope fitting and the two annotation models are implemented in [bin/analyze_g4_methylation_age.R](bin/analyze_g4_methylation_age.R) and [bin/compare_g4_effects_adjusted.R](bin/compare_g4_effects_adjusted.R); the Quadron input configuration is [params_GSE61256_quadron.yaml](params_GSE61256_quadron.yaml).
+The source series are [GSE61257](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61257), [GSE61258](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61258), and [GSE61259](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61259). [main.nf](main.nf) is the single computational entry point, with input and resource settings in [nextflow.config](nextflow.config). Its module invokes the commented R calculation scripts, including [bin/analyze_g4_methylation_age.R](bin/analyze_g4_methylation_age.R) for age slopes and [bin/compare_g4_effects_adjusted.R](bin/compare_g4_effects_adjusted.R) for M0/M1. The final Nextflow task compares every column of the six regenerated model tables with the frozen manuscript references. The [README.md](README.md) documents prepared-input, saved-slope, and processed-GEO entry points.
 
-The six retained model tables, aggregate cohort summary, and unchanged original figure PNGs are bundled alongside this manuscript so that the Markdown does not depend on an ignored results directory. [G4_methylation_paper_files/source_manifest.csv](G4_methylation_paper_files/source_manifest.csv) maps each model/figure artifact to its source and MD5 checksum. The full [M0 coefficients](G4_methylation_paper_files/data/quadron_minimal_stable_unstable_mean_beta_coefficients.csv) and [M1 coefficients](G4_methylation_paper_files/data/quadron_minimal_strand_g_richness_coefficients.csv) retain the exact formulas and unrounded results. [G4_methylation_paper_files/render_session_info.txt](G4_methylation_paper_files/render_session_info.txt) records the document-rendering environment, not the original analysis environment. These files reproduce the manuscript from saved outputs; re-estimating the scientific models additionally requires the original beta matrices and annotation provenance.
+The six retained model tables, aggregate cohort summary, and unchanged original figure PNGs are bundled alongside this manuscript so that the Markdown does not depend on an ignored results directory. [G4_methylation_paper_files/source_manifest.csv](G4_methylation_paper_files/source_manifest.csv) maps each model/figure artifact to its source and MD5 checksum. The full [M0 coefficients](G4_methylation_paper_files/data/quadron_minimal_stable_unstable_mean_beta_coefficients.csv) and [M1 coefficients](G4_methylation_paper_files/data/quadron_minimal_strand_g_richness_coefficients.csv) retain the exact formulas and unrounded results. Rendering checks the frozen asset hashes without refreshing them. Re-estimating the scientific models requires the beta matrices or saved slopes and the relevant annotation checkpoints; Nextflow retains task commands, logs, and caching metadata separately from the paper.
 
-From the BTEP directory, [render_G4_methylation_paper.R](render_G4_methylation_paper.R) regenerates the Markdown and embeds the figure and math resources into the HTML. Rendering requires the documented R packages and internet access for the KaTeX dependency; the completed HTML can be read offline:
+From the BTEP directory, the Rmd directly regenerates Markdown and embeds the figure and math resources into HTML. Rendering requires the documented R packages and internet access for the KaTeX dependency; the completed HTML can be read offline:
 
 ```r
-source("render_G4_methylation_paper.R")
+rmarkdown::render("G4_methylation_paper.Rmd", output_format = "all")
 ```
 
 # Ethics statement

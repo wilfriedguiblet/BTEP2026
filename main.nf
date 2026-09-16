@@ -2,189 +2,145 @@
 nextflow.enable.dsl = 2
 
 /*
- * BTEP G4 methylation-aging workflow
- *
- * Tests whether human CpG methylation age-slopes are larger within annotated
- * G4 motifs plus a 100 bp surrounding window. The default input is the public
- * GSE61256 methylation subseries: adipose, liver and muscle.
+ * The single computational entry point for the Quadron methylation paper.
+ * prepared: beta/metadata -> CpG age slopes -> M0/M1 -> numerical verification.
+ * slopes:   replay the two models from existing annotated CpG slopes.
+ * geo:      explicitly import processed GEO matrices before fitting slopes.
+ * Rendering is separate: knit G4_methylation_paper.Rmd after the run succeeds.
  */
 
 include {
-    DOWNLOAD_GEO_SERIES_MATRIX
+    IMPORT_GEO
     PREPARE_G4_WINDOWS
-    BUILD_PROBE_STRUCTURE_ANNOTATIONS
-    ANALYZE_G4_METHYLATION_AGE
-    RUN_STRUCTURE_SENSITIVITY
-    SUMMARIZE_G4_TISSUES
+    FIT_AGE_SLOPES
+    FIT_PAPER_MODEL
+    VERIFY_PAPER_RESULTS
 } from './modules/btep_g4_methylation'
 
-def boolParam(value) {
-    return value instanceof Boolean ? value : value.toString().toBoolean()
-}
-
 def requiredFile(value, label) {
-    if (!value) {
-        error "ERROR: --${label} is required"
-    }
+    if (!value) error "Missing --${label}"
     def candidate = file(value)
-    if (!candidate.exists()) {
-        error "ERROR: ${label} not found: ${value}"
-    }
+    if (!candidate.exists()) error "${label} not found: ${value}"
     return candidate
 }
 
-def helpText() {
-    return """
-BTEP G4 methylation-aging workflow
-
-Default experiment:
-  Downloads processed GEO Series Matrix files for GSE61257, GSE61258 and
-  GSE61259, representing adipose, liver and muscle Illumina 450K methylation.
-
-Required reference inputs:
-  --probe_manifest PATH     Probe coordinates with probe_id, chr_hg38/start_hg38/end_hg38
-  --g4_stable PATH          G4Hunter stable BED, hg38
-  --g4_unstable PATH        G4Hunter unstable BED, hg38
-
-Optional local-input mode:
-  --samplesheet PATH        CSV with columns cohort,tissue,beta_matrix,metadata,age_col,sample_id_col,covariates
-
-Example:
-  nextflow run main.nf -profile standard
-  nextflow run main.nf --samplesheet samplesheet.template.csv
-""".stripIndent()
+// Resolve existing symlinks before checking destinations. A missing ancestor
+// followed by '..' is rejected: creating it later could redirect output to data.
+def physicalPath(value) {
+    def candidate = file(value).toFile()
+    if (candidate.exists()) return candidate.toPath().toRealPath()
+    if (java.nio.file.Files.isSymbolicLink(candidate.toPath())) error "Dangling symlink: ${value}"
+    if (candidate.name in ['.', '..']) error "Unresolved parent traversal: ${value}"
+    return physicalPath(candidate.parent).resolve(candidate.name)
 }
 
-params.help = false
-params.analysis_id = 'gse61256_g4_100bp'
-params.outdir = 'results/g4_methylation_age_100bp'
-params.samplesheet = null
-params.geo_series = 'GSE61257:adipose,GSE61258:liver,GSE61259:muscle'
-params.g4_stable = '../G4Hunter/G4Hunter.hg38.stable.bed'
-params.g4_unstable = '../G4Hunter/G4Hunter.hg38.unstable.bed'
-params.probe_manifest = '../results/submission_v3/reference_manifest/probe_gene_manifest.csv.gz'
-params.g4_flank_bp = 100
-params.g4_long_quantile = 0.99
-params.g4_long_mad_multiplier = 3
-params.g4_long_min_bp = 0
-params.ucsc_goldenpath_dir = '/fdb/genomebrowser/goldenPath/hg38'
-params.rloop_bed = ''
-params.rloop_url = ''
-params.replication_timing_bed = ''
-params.replication_timing_url = ''
-params.cross_reactive_probes = ''
-params.cross_reactive_probes_url = ''
-params.include_g4_architecture = false
-params.min_samples = 2
-params.default_covariates = 'sex|bmi'
-
 workflow {
-    if (boolParam(params.help)) {
-        log.info helpText()
+    if (params.help) {
+        log.info '''
+Quadron methylation paper
+
+  nextflow run main.nf --start_from prepared
+  nextflow run main.nf --start_from slopes --outdir results/paper_slopes
+  nextflow run main.nf --start_from geo --outdir results/paper_geo
+  nextflow run main.nf -profile slurm -resume
+
+Inputs (defaults in nextflow.config):
+  --data_dir PATH          Prepared inputs, annotated slopes and G4 checkpoints
+  --probe_manifest PATH    The shared hg38 probe manifest (prepared/geo routes)
+  --g4_stable PATH         Optional original Quadron stable BED
+  --g4_unstable PATH       Optional original Quadron unstable BED; supply both
+  --series_matrix_dir PATH Optional frozen GEO matrix files for the geo route
+
+Settings:
+  --sequence_flank_bp 1000 Probe-centered sequence flank; G4 padding is fixed at 100 bp
+  --outdir PATH           New output directory; use -resume to continue a managed run
+  --verify false         Skip comparison with the six frozen paper tables
+
+Only the two additive minimal models are run. No chromatin, density,
+RepeatMasker, or older regression families are included. The geo route may
+download processed matrices; it does not reproduce raw-IDAT normalization.
+'''.stripIndent()
     } else {
-        def stable_g4 = requiredFile(params.g4_stable, 'g4_stable')
-        def unstable_g4 = requiredFile(params.g4_unstable, 'g4_unstable')
-        def probe_manifest = requiredFile(params.probe_manifest, 'probe_manifest')
+        if (!(params.start_from in ['prepared', 'slopes', 'geo'])) error 'start_from must be prepared, slopes, or geo'
+        if (!(params.sequence_flank_bp.toString() ==~ /\d+/)) error 'sequence_flank_bp must be a nonnegative integer'
+        if ((params.g4_stable as Boolean) != (params.g4_unstable as Boolean)) error 'Supply both Quadron class BEDs or neither'
 
-        log.info """
-        ╔══════════════════════════════════════════════════════════════╗
-        ║             BTEP G4 Methylation Aging Pipeline              ║
-        ╠══════════════════════════════════════════════════════════════╣
-        ║ Output:          ${params.outdir}
-        ║ G4 flank:        ${params.g4_flank_bp} bp
-        ║ Long clusters:   >= max(q${params.g4_long_quantile}, median + ${params.g4_long_mad_multiplier} MAD, ${params.g4_long_min_bp} bp)
-        ║ Stable BED:      ${stable_g4}
-        ║ Unstable BED:    ${unstable_g4}
-        ║ Probe manifest:  ${probe_manifest}
-        ║ Samplesheet:     ${params.samplesheet ?: 'GEO defaults: ' + params.geo_series}
-        ╚══════════════════════════════════════════════════════════════╝
-        """.stripIndent()
+        def destination = physicalPath(params.outdir)
+        def protectedPaths = [params.data_dir, params.expected_tables, "${projectDir}/bin",
+                              "${projectDir}/modules", "${projectDir}/G4_methylation_paper_files"]
+        protectedPaths.each { value ->
+            def protectedPath = physicalPath(value)
+            if (destination.startsWith(protectedPath) || protectedPath.startsWith(destination)) {
+                error "Output overlaps an input or source directory: ${destination}"
+            }
+        }
+        def marker = destination.resolve('.quadron-paper-run').toFile()
+        def directory = destination.toFile()
+        if (directory.exists() && directory.list()?.size() && !(workflow.resume && marker.exists())) {
+            error "Output is not empty: ${destination}. Choose a new --outdir or -resume a managed run."
+        }
+        directory.mkdirs()
+        if (!marker.exists()) marker.text = 'Managed by BTEP/main.nf\n'
+        params.outdir = destination.toString()
 
-        PREPARE_G4_WINDOWS(
-            channel.value(stable_g4),
-            channel.value(unstable_g4)
-        )
-        BUILD_PROBE_STRUCTURE_ANNOTATIONS(channel.value(probe_manifest))
-
-        def ch_samples
-        if (params.samplesheet) {
-            def samplesheet_file = requiredFile(params.samplesheet, 'samplesheet')
-            def sampleLines = new File(samplesheet_file.toString())
-                .readLines('UTF-8')
-                .findAll { line -> line.trim() }
-            if (sampleLines.size() < 2) {
-                error 'ERROR: samplesheet must contain a header and at least one sample row'
-            }
-            def headers = sampleLines[0].split(',', -1) as List
-            def requiredColumns = ['cohort', 'tissue', 'beta_matrix', 'metadata', 'age_col', 'sample_id_col']
-            def missingHeaders = requiredColumns - headers
-            if (missingHeaders) {
-                error "ERROR: samplesheet missing columns: ${missingHeaders.join(', ')}"
-            }
-            def sampleTuples = []
-            sampleLines.drop(1).eachWithIndex { line, rowIndex ->
-                def values = line.split(',', -1) as List
-                if (values.size() != headers.size()) {
-                    error "ERROR: samplesheet row ${rowIndex + 2} has ${values.size()} fields; expected ${headers.size()}"
-                }
-                def row = [headers, values].transpose().collectEntries()
-                requiredColumns.each { column ->
-                    if (!row[column]?.toString()?.trim()) {
-                        error "ERROR: samplesheet row ${rowIndex + 2} is missing '${column}'"
-                    }
-                }
-                def beta = file(row.beta_matrix)
-                def metadata = file(row.metadata)
-                if (!beta.exists()) error "ERROR: beta_matrix not found: ${row.beta_matrix}"
-                if (!metadata.exists()) error "ERROR: metadata not found: ${row.metadata}"
-                def meta = [
-                    cohort: row.cohort.toString(),
-                    tissue: row.tissue.toString(),
-                    age_col: row.age_col.toString(),
-                    sample_id_col: row.sample_id_col.toString(),
-                    covariates: row.covariates?.toString()?.trim() ?: params.default_covariates.toString()
-                ]
-                sampleTuples << tuple(meta, beta, metadata)
-            }
-            ch_samples = channel.fromList(sampleTuples)
+        def cohorts = [[cohort: 'GSE61257', tissue: 'adipose'],
+                       [cohort: 'GSE61258', tissue: 'liver'],
+                       [cohort: 'GSE61259', tissue: 'muscle']]
+        def merged
+        def unmerged
+        if (params.g4_stable) {
+            PREPARE_G4_WINDOWS(channel.value(requiredFile(params.g4_stable, 'g4_stable')),
+                               channel.value(requiredFile(params.g4_unstable, 'g4_unstable')),
+                               channel.value(requiredFile("${projectDir}/bin/prepare_g4_windows.R", 'window script')))
+            merged = PREPARE_G4_WINDOWS.out.merged
+            unmerged = PREPARE_G4_WINDOWS.out.unmerged
         } else {
-            def geoTuples = params.geo_series.toString().split(',').collect { item ->
-                def fields = item.split(':', -1)
-                if (fields.size() != 2 || !fields[0] || !fields[1]) {
-                    error "ERROR: malformed --geo_series item '${item}'. Use ACCESSION:tissue"
-                }
-                tuple([
-                    cohort: fields[0].toString(),
-                    tissue: fields[1].toString(),
-                    age_col: 'age',
-                    sample_id_col: 'sample_id',
-                    covariates: params.default_covariates.toString()
-                ], fields[0].toString())
+            unmerged = channel.value(requiredFile("${params.data_dir}/g4_windows/g4_motifs_100bp_unmerged.bed", 'unmerged Quadron checkpoint'))
+            if (params.start_from != 'slopes') {
+                merged = channel.value(requiredFile("${params.data_dir}/g4_windows/g4_motifs_100bp_merged.bed", 'merged Quadron checkpoint'))
             }
-            DOWNLOAD_GEO_SERIES_MATRIX(channel.fromList(geoTuples))
-            ch_samples = DOWNLOAD_GEO_SERIES_MATRIX.out.prepared
         }
 
-        ch_analysis_inputs = ch_samples
-            .combine(channel.value(probe_manifest))
-            .combine(PREPARE_G4_WINDOWS.out.windows)
-            .map { meta, beta, metadata, manifest, windows ->
-                tuple(meta, beta, metadata, manifest, windows)
+        def slopes
+        if (params.start_from == 'slopes') {
+            slopes = channel.fromList(cohorts).map { meta ->
+                requiredFile("${params.data_dir}/per_tissue/${meta.cohort}_${meta.tissue}_probe_slopes.csv.gz", 'annotated slope checkpoint')
             }
+        } else {
+            def prepared
+            if (params.start_from == 'geo') {
+                def imports = channel.fromList(cohorts).map { meta ->
+                    def matrix = params.series_matrix_dir ? requiredFile("${params.series_matrix_dir}/${meta.cohort}_series_matrix.txt.gz", 'series matrix') : []
+                    tuple(meta, matrix)
+                }
+                IMPORT_GEO(imports, channel.value(requiredFile("${projectDir}/bin/download_geo_series_matrix.R", 'GEO script')))
+                prepared = IMPORT_GEO.out.prepared
+            } else {
+                prepared = channel.fromList(cohorts).map { meta ->
+                    tuple(meta,
+                          requiredFile("${params.data_dir}/prepared_inputs/${meta.cohort}_${meta.tissue}_beta.rds", 'beta matrix'),
+                          requiredFile("${params.data_dir}/prepared_inputs/${meta.cohort}_${meta.tissue}_metadata.csv", 'metadata'))
+                }
+            }
+            FIT_AGE_SLOPES(prepared, channel.value(requiredFile(params.probe_manifest, 'probe_manifest')),
+                           merged, channel.value(requiredFile("${projectDir}/bin/analyze_g4_methylation_age.R", 'age-slope script')))
+            slopes = FIT_AGE_SLOPES.out.slopes.map { meta, path -> path }
+        }
 
-        ANALYZE_G4_METHYLATION_AGE(ch_analysis_inputs)
-
-        RUN_STRUCTURE_SENSITIVITY(
-            ANALYZE_G4_METHYLATION_AGE.out.slopes.map { meta, slopes -> slopes }.collect(),
-            PREPARE_G4_WINDOWS.out.unmerged_windows,
-            BUILD_PROBE_STRUCTURE_ANNOTATIONS.out.annotations
+        // Stable/unstable are overlapping ADDITIVE predictors. Only the two
+        // strand-oriented G fractions distinguish M1 from M0; no other model
+        // branches are invoked. Sort the collected inputs for repeatable replay.
+        def models = channel.of(
+            [id: 'M0', directory: 'minimal_model', prefix: 'quadron_minimal_stable_unstable_mean_beta', richness: false],
+            [id: 'M1', directory: 'minimal_model_strand_g_richness', prefix: 'quadron_minimal_strand_g_richness', richness: true]
         )
+        FIT_PAPER_MODEL(models, slopes.collect().map { paths -> paths.sort { it.name } },
+                         unmerged, channel.value(requiredFile("${projectDir}/bin/compare_g4_effects_adjusted.R", 'model script')))
 
-        SUMMARIZE_G4_TISSUES(
-            ANALYZE_G4_METHYLATION_AGE.out.summary.map { meta, summary -> summary }.collect(),
-            ANALYZE_G4_METHYLATION_AGE.out.tests.map { meta, tests -> tests }.collect(),
-            ANALYZE_G4_METHYLATION_AGE.out.regression_effects.map { meta, regression -> regression }.collect(),
-            PREPARE_G4_WINDOWS.out.overlap_summary
-        )
+        if (params.verify) {
+            VERIFY_PAPER_RESULTS(FIT_PAPER_MODEL.out.results.map { model, path -> path }.collect(),
+                                  channel.value(requiredFile(params.expected_tables, 'expected_tables')),
+                                  channel.value(requiredFile("${projectDir}/bin/verify_paper_results.R", 'comparison script')))
+        }
     }
 }

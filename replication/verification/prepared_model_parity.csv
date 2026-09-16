@@ -1,7 +1,0 @@
-model,file,columns_checked,all_passed,maximum_absolute_error
-M0,quadron_minimal_stable_unstable_mean_beta_coefficients.csv,10,TRUE,9.9475983006414e-14
-M0,quadron_minimal_stable_unstable_mean_beta_g4_terms.csv,10,TRUE,8.04911692853239e-16
-M0,quadron_minimal_stable_unstable_mean_beta_stable_minus_unstable.csv,12,TRUE,9.99200722162641e-15
-M1,quadron_minimal_strand_g_richness_coefficients.csv,10,TRUE,9.9475983006414e-14
-M1,quadron_minimal_strand_g_richness_g4_terms.csv,10,TRUE,3.99680288865056e-15
-M1,quadron_minimal_strand_g_richness_stable_minus_unstable.csv,12,TRUE,6.99440505513849e-15

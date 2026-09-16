@@ -52,10 +52,23 @@ if (!requireNamespace("BSgenome.Hsapiens.UCSC.hg38", quietly = TRUE) ||
 }
 
 slope_files <- list.files(opt$slopes_dir, pattern = "_probe_slopes\\.csv\\.gz$", full.names = TRUE)
-# Every matching file is read. The curated runner stages exactly the three
+# Every matching file is read. main.nf stages exactly the three
 # paper cohorts in a fresh directory to prevent accidental extra-cohort input.
 if (!length(slope_files)) stop("No probe slope files found")
 slopes <- rbindlist(lapply(slope_files, fread), fill = TRUE)
+
+# Keep input integrity checks with the calculation, not in a second runner.
+# Stored means preserve the exact first-stage specimen selection for M0/M1.
+if (minimal_model) {
+  required_columns <- c("probe_id", "cohort", "tissue", "slope", "mean_beta",
+                         "chr", "start", "end", "stable_motifs", "unstable_motifs")
+  if (!all(required_columns %in% names(slopes))) stop("Incomplete annotated slope checkpoint")
+  if (uniqueN(slopes, by = c("probe_id", "tissue")) != nrow(slopes) ||
+      !setequal(unique(paste(slopes$cohort, slopes$tissue)),
+                c("GSE61257 adipose", "GSE61258 liver", "GSE61259 muscle"))) {
+    stop("Expected unique probe/tissue rows from exactly the three paper cohorts")
+  }
+}
 
 if (!"mean_beta" %in% names(slopes)) {
   # Compatibility fallback only. It averages ALL prepared beta columns, which
@@ -91,7 +104,7 @@ if (!"chrom_state" %in% names(slopes)) slopes[, chrom_state := NA_character_]
 structure_terms <- character()
 if (nzchar(opt$structure_annotations) && file.exists(opt$structure_annotations)) {
   # IMPORTANT: this optional join/filter happens even for the minimal models.
-  # The curated runner supplies no structure file, explicitly disables the
+  # main.nf supplies no structure file, explicitly disables the
   # cross-reactive exclusion flag, and checks numerical results against the
   # manuscript. Formula equality alone cannot certify an identical sample set.
   structure <- fread(opt$structure_annotations)

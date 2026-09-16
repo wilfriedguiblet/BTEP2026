@@ -1,121 +1,103 @@
-# BTEP G4 Methylation-Aging Pipeline
+# Quadron Methylation and Aging
 
-## Reproduce the Paper
+[main.nf](main.nf) handles all computation for the paper. It uses one [Nextflow module](modules/btep_g4_methylation.nf) and the commented R calculation scripts in `bin/`. [G4_methylation_paper.Rmd](G4_methylation_paper.Rmd) renders the paper directly; there is no separate replication framework or rendering wrapper.
 
-For the two final Quadron models in [G4_methylation_paper.md](G4_methylation_paper.md), use the [curated replication guide](replication/README.md). It provides commented scripts, explicit M0/M1 settings, checkpoint and prepared-input routes, package checks, and numerical verification against the manuscript tables. The older exploratory workflow below is not the paper's replication entry point.
+## Run and Render
 
-This Nextflow DSL2 workflow tests whether human CpG methylation age-slopes are larger within annotated G4Hunter motifs plus 100 bp flanks than outside those coordinates.
-
-The default experiment uses the public GSE61256 methylation subseries:
-
-| Series | Tissue | Samples | Assay |
-|---|---:|---:|---|
-| GSE61257 | adipose | 32 | Illumina 450K methylation |
-| GSE61258 | liver | 79 | Illumina 450K methylation |
-| GSE61259 | muscle | 26 | Illumina 450K methylation |
-
-## Run
-
-From this directory:
+From BTEP, with the existing prepared data and packages available:
 
 ```bash
-nextflow run main.nf -params-file params_GSE61256.yaml -profile standard
+nextflow run main.nf -profile standard
+Rscript -e 'rmarkdown::render("G4_methylation_paper.Rmd", output_format = "all")'
 ```
 
-On the cluster, submit the provided SLURM wrapper:
+This fits CpG age slopes in the three tissues, runs M0/M1, and verifies all six result tables. Outputs go to `results/paper`. Rendering uses the frozen paper tables and original figures, never silently replaces them with a new run, and produces [G4_methylation_paper.md](G4_methylation_paper.md) and [G4_methylation_paper.html](G4_methylation_paper.html). HTML display resources are embedded; internet access is needed at render time for KaTeX, but the finished HTML can be read offline.
+
+Resume a managed run or execute on SLURM with the same entry point:
 
 ```bash
-sbatch run_gse61256_cluster.sh
+nextflow run main.nf -profile standard -resume
+nextflow run main.nf -profile slurm --slurm_partition norm -resume
 ```
 
-To run the independent Quadron annotation sensitivity, which writes to a separate result directory, use:
+Use a new `--outdir` for a separate run. Populated, unmanaged output directories and paths overlapping protected inputs are rejected. Nextflow owns task scheduling, caching, command logs and resume; scientific scripts are staged inputs so code changes invalidate the corresponding cached tasks. Local jobs are serialized by the standard profile to limit memory use.
+
+## Models
+
+| GEO series | Tissue | Prepared specimens |
+|---|---|---:|
+| GSE61257 | Adipose | 32 |
+| GSE61258 | Liver | 79 |
+| GSE61259 | Skeletal muscle | 26 |
+
+These are specimen counts, not independent donor counts. Each CpG first uses `beta ~ age + sex + bmi`. Its signed age coefficient is the response for:
+
+```r
+# M0: mean-methylation adjusted, without G-richness correction.
+slope ~ has_stable_g4 + has_unstable_g4 + mean_beta
+
+# M1: only the two strand-oriented G fractions are added.
+slope ~ has_stable_g4 + has_unstable_g4 + mean_beta +
+				probe_strand_g_fraction + opposite_strand_g_fraction
+```
+
+No earlier regression family, chromatin correction, density stratification, or elastic-net analysis is invoked. The stable and unstable indicators can overlap; neither model has their interaction. `mean_beta` is the same-tissue specimen mean, not an independent baseline. BH adjustments are across three tissues separately for each term and for the direct stable-minus-unstable contrasts. Per-decade effects are yearly coefficients multiplied by ten; the approximate 95% intervals are not multiplicity-adjusted.
+
+## Inputs and Entry Points
+
+All defaults are in [nextflow.config](nextflow.config). The default `--data_dir` is the existing `results/g4_methylation_age_quadron_100bp` directory. Ignored input data and historical outputs are not deleted by this consolidation.
+
+| Entry point | Required inputs under `data_dir` |
+|---|---|
+| `--start_from prepared` (default) | Three `prepared_inputs/GSE*_tissue_beta.rds` and matching metadata CSVs; merged and unmerged Quadron checkpoints; external `--probe_manifest` |
+| `--start_from slopes` | Three `per_tissue/GSE*_tissue_probe_slopes.csv.gz` files with stored mean beta; unmerged Quadron checkpoint |
+| `--start_from geo` | Merged/unmerged checkpoints and manifest; processed GEO matrices imported by the pipeline |
+
+Exactly the three named cohort files are selected, not arbitrary extra files in the directory. Beta matrices use probe IDs as rows and sample IDs as columns. Metadata require `sample_id`, `age`, `sex`, and `bmi`. The manifest must provide mapped hg38 coordinates. Both windows are named `g4_motifs_100bp_merged.bed` and `g4_motifs_100bp_unmerged.bed` under `g4_windows`.
 
 ```bash
-sbatch run_gse61256_cluster.sh params_GSE61256_quadron.yaml
+# Faster replay from saved annotated slopes.
+nextflow run main.nf -profile standard --start_from slopes --outdir results/paper_slopes
+
+# Explicit processed-GEO import. Without series_matrix_dir this downloads data.
+nextflow run main.nf -profile standard --start_from geo --outdir results/paper_geo
+
+# Optional offline GEO imports: directory contains GSE*_series_matrix.txt.gz.
+nextflow run main.nf -profile standard --start_from geo \
+	--series_matrix_dir /path/to/frozen/matrices --outdir results/paper_geo_cached
 ```
 
-The wrapper accepts an optional params file, profile, and extra Nextflow arguments:
+To rebuild G4 neighborhoods, supply both `--g4_stable` and `--g4_unstable` with the original class-separated Quadron BEDs. Otherwise the existing checkpoints are used. G4 padding is fixed at **100 bp**; the separate probe-centered sequence flank is **1,000 bp**, controlled by `--sequence_flank_bp`. They are not interchangeable.
 
-```bash
-sbatch run_gse61256_cluster.sh params_GSE61256.yaml slurm --g4_long_min_bp 50000
+The original Quadron cutoff/version and raw-IDAT preprocessing history are not reconstructed here. The processed-GEO/original-BED route requires those source inputs and was not tested on the unavailable original BEDs. Existing coordinate and strand conventions are preserved for numerical reproduction; they are not certified by a matching replay.
+
+## Dependencies
+
+Validated with Nextflow 26.04.1, R 4.5.2, data.table 1.17.8, ggplot2 4.0.0, rmarkdown 2.30, knitr 1.51 and Pandoc 3.9. Use a Java version supported by the installed Nextflow. Packages can be installed explicitly in a suitable R library:
+
+```r
+install.packages(c("data.table", "optparse", "ggplot2", "rmarkdown", "knitr", "xml2", "BiocManager"))
+BiocManager::install(c("IlluminaHumanMethylation450kanno.ilmn12.hg19",
+											 "BSgenome.Hsapiens.UCSC.hg38", "GenomicRanges", "IRanges",
+											 "GenomeInfoDb", "Biostrings", "BSgenome"), update = FALSE, ask = FALSE)
 ```
 
-The workflow can also run from local beta/metadata files:
+The genome package is large. Both models retain the original script's genome/annotation helper dependencies, even where a computed helper is not part of M0's formula. No installer or lockfile is generated automatically.
 
-```bash
-nextflow run main.nf --samplesheet samplesheet.template.csv -profile standard
-```
+## Verification and Layout
 
-## Inputs
+The final Nextflow task checks every column of the six regenerated model tables against the frozen paper bundle: row identities, formulas, counts, estimates, SEs, test statistics, P/q values and direct contrasts. Counts and labels are exact; estimates permit `1e-12 + 1e-7 * abs(reference)` floating-point differences. P/q use relative tolerance only, so materially different tiny probabilities cannot match through an absolute floor. A mismatch fails the run; expected results are never updated to force agreement. `--verify false` explicitly skips this reference comparison for a different analysis, not for a claimed reproduction.
 
-- `../G4Hunter/G4Hunter.hg38.stable.bed`
-- `../G4Hunter/G4Hunter.hg38.unstable.bed`
-- `../results/submission_v3/reference_manifest/probe_gene_manifest.csv.gz`
-
-The local-input samplesheet must contain:
+Both real-data routes (`prepared` and `slopes`) were run successfully through Nextflow after consolidation on 2026-09-16, including the six-table verification. Fresh plots reproduce the estimates but may differ cosmetically from the original paper PNGs. The preserved literature review remains in [AI_Project.Rmd](AI_Project.Rmd).
 
 ```text
-cohort,tissue,beta_matrix,metadata,age_col,sample_id_col,covariates
+main.nf                       # Only computational entry point
+nextflow.config               # Input/settings and local/SLURM profiles
+modules/btep_g4_methylation.nf # Import, windows, slopes, M0/M1, verification
+bin/                          # Four commented calculation kernels + checker
+G4_methylation_paper.Rmd      # Direct render to Markdown and offline HTML
+G4_methylation_paper.bib      # References
+G4_methylation_paper_files/   # Frozen tables and the two original figures
 ```
 
-Beta matrices should have CpG probe IDs as row names and sample IDs as columns. Metadata must include the sample ID column and chronological age column.
-
-## Coordinate Overlap Policy
-
-G4Hunter has dense and overlapping motifs, even after each motif is expanded by 100 bp. The primary analysis therefore uses a non-overlapping coordinate-of-interest set:
-
-1. Read stable and unstable G4Hunter BED files.
-2. Expand every motif by 100 bp on both sides.
-3. Merge overlapping or adjacent expanded windows across both classes.
-4. Flag unusually long merged clusters using `max(99th percentile width, median + 3 * MAD, optional minimum bp)`.
-5. Retain annotation columns with motif counts and class labels: `stable_only`, `unstable_only`, `stable_unstable_overlap`, or `long_g4_cluster`.
-
-This makes every CpG eligible to be counted once in the primary test. For secondary motif-level analyses, use `g4_motifs_100bp_unmerged.bed`, but assign overlapping CpGs by nearest motif, priority class, or fractional weights to avoid double counting.
-
-Long clusters are isolated because they likely represent runs of consecutive or highly dense G4 motifs rather than ordinary single-motif neighborhoods. Keeping them as `long_g4_cluster` prevents the bulk G4-window estimate from being dominated by unusually broad regions. Tune this behavior with `g4_long_quantile`, `g4_long_mad_multiplier`, and `g4_long_min_bp`.
-
-## Main Outputs
-
-- `g4_windows/g4_motifs_100bp_merged.bed`: primary non-overlapping G4 plus 100 bp windows.
-- `g4_windows/g4_motifs_100bp_long_clusters.bed`: unusually long merged G4 clusters isolated from the bulk classes.
-- `g4_windows/g4_motifs_100bp_unmerged.bed`: motif-level expanded windows for secondary analyses.
-- `per_tissue/*_probe_slopes.csv.gz`: probe-level age slopes and G4-window labels.
-- `summary/btep_g4_cross_tissue_summary.csv`: per-tissue summaries by G4 class.
-- `summary/btep_g4_cross_tissue_tests.csv`: G4-window versus outside-CpG tests.
-- `per_tissue/*_g4_regression_effects.csv`: regression estimates using overlapping predictors: `has_stable_g4`, `has_unstable_g4`, their interaction, `is_long_cluster`, and motif density.
-
-## Structural-Context Sensitivity Analysis
-
-The pipeline automatically annotates probes with hg38 RepeatMasker class and segmental-duplication overlap using UCSC tables. On Biowulf it uses the centrally maintained UCSC goldenPath mirror at `/fdb/genomebrowser/goldenPath/hg38/database/` first. It falls back to UCSC internet downloads only when those files are unavailable. The cluster location is configurable through `ucsc_goldenpath_dir`. It then runs an additional G4 sensitivity model adjusted for these annotations. Outputs are written to:
-
-- `sensitivity_annotations/probe_structure_annotations.csv.gz`
-- `sensitivity_annotations/probe_structure_annotation_provenance.csv`
-- `sensitivity_annotations/probe_structure_annotation_qc.csv`
-- `structure_sensitivity/structure_sensitivity_g4_terms.csv`
-- `structure_sensitivity/structure_sensitivity_stable_minus_unstable.csv`
-- `structure_sensitivity/structure_sensitivity_g4_terms.png`
-
-Optional paths can add further annotations to this sensitivity model:
-
-```text
-rloop_bed: "/path/to/hg38_rloop_regions.bed"
-rloop_url: "https://example.org/hg38_rloop_regions.bed.gz"
-replication_timing_bed: "/path/to/hg38_replication_timing.bed"
-replication_timing_url: "https://hgdownload.soeucsc.edu/goldenPath/hg38/database/your_replication_track.bed.gz"
-cross_reactive_probes: "/path/to/cross_reactive_450k_probe_ids.txt"
-cross_reactive_probes_url: "https://example.org/cross_reactive_450k_probe_ids.txt"
-```
-
-URL parameters are downloaded once into the annotation task directory and recorded in the provenance table. UCSC supplies the automatic RepeatMasker and segmental-duplication tables. Select a specific UCSC replication-timing track appropriate for the tissue/model before setting `replication_timing_url`; UCSC does not provide one universal timing profile. R-loop maps and array cross-reactive probe lists should use a cited external source or a locally curated track. R-loop and segmental-duplication tracks are modeled as overlap indicators. Replication timing is modeled as a numeric value. When a cross-reactive probe list is supplied, those probes are excluded before fitting the sensitivity model.
-
-## Regression Interpretation
-
-For the main biological question, use the `age_slope_delta_beta_per_year` response in `*_g4_regression_effects.csv`. This is equivalent to asking whether G4 annotations modify the age effect, without forcing probes into mutually exclusive stable/unstable bins. In full-model notation, the hypothesis is represented by interaction terms such as:
-
-```text
-methylation_beta ~ age + sex + bmi + age:has_stable_g4 + age:has_unstable_g4 + age:has_stable_g4:has_unstable_g4
-```
-
-Because G4 status is a probe-level feature, the efficient implementation first estimates each probe's age slope adjusted for sex and BMI, then regresses those slopes on overlapping G4 predictors. The `has_stable_g4:has_unstable_g4` term captures regions where stable and unstable annotations overlap rather than discarding them or forcing priority labels.
-
-For the primary stable-versus-unstable contrast, `include_g4_architecture` is `false`: motif density, long-cluster status, and strand-specific motif counts are derived from the same G4 annotation and are therefore treated as exploratory sensitivities rather than confounders. Set `include_g4_architecture: true` only for that secondary sensitivity.
+New outputs live under `results/paper/{per_tissue,minimal_model,minimal_model_strand_g_richness,verification}`. Imported matrices and rebuilt windows are published when requested. Nextflow commands and task logs remain in the work directory; the execution trace is `.nextflow-paper-trace.txt`. All run artifacts are ignored by Git rather than checked into another replication-report tree.

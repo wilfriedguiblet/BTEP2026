@@ -3,7 +3,7 @@
 # PURPOSE: estimate signed methylation-versus-age slopes for each CpG and
 # attach merged-neighborhood annotations. The paper uses these slope tables as
 # INPUTS to compare_g4_effects_adjusted.R, not the exploratory regressions at
-# the end of this script. The curated runner uses --slopes-only to stop early.
+# the end of this script. main.nf uses --slopes-only to stop early.
 # For exact replay, retain the prepared beta matrix, sample metadata, hg38
 # manifest, merged Quadron checkpoint, requested covariates, and their hashes.
 
@@ -52,11 +52,16 @@ if (!opt$sample_col %in% names(metadata)) stop("Sample column not found: ", opt$
 metadata[, age_for_model := suppressWarnings(as.numeric(get(opt$age_col)))]
 
 covariate_text <- if (is.null(opt$covariates)) "" else opt$covariates
-# Legacy behavior silently drops requested covariates absent from metadata.
-# The curated paper runner therefore checks age/sex/BMI columns before calling
-# this script. Missing values are a different issue and trigger complete cases.
+# Missing requested columns must not silently become an age-only analysis.
+# Missing values within present columns are handled by complete cases below.
 covariates <- unlist(strsplit(covariate_text, "\\|"))
-covariates <- covariates[nzchar(covariates) & covariates %in% names(metadata)]
+covariates <- unique(covariates[nzchar(covariates)])
+missing_covariates <- setdiff(covariates, names(metadata))
+if (length(missing_covariates)) stop("Missing requested covariates: ", paste(missing_covariates, collapse = ", "))
+if (anyNA(metadata[[opt$sample_col]]) || anyDuplicated(metadata[[opt$sample_col]]) ||
+    anyDuplicated(colnames(beta)) || anyDuplicated(rownames(beta))) {
+  stop("Sample and probe IDs must be unique and metadata sample IDs non-missing")
+}
 common_samples <- intersect(colnames(beta), metadata[[opt$sample_col]])
 # Sample order MUST follow the same ID join in beta and metadata. Subject IDs
 # may recur across tissues; this code fits tissues separately, not a donor-
@@ -89,6 +94,11 @@ probe_dt <- manifest[, .(
   end = as.integer(get(end_col))
 )]
 probe_dt <- probe_dt[probe_id %in% rownames(beta) & grepl("^chr([0-9]+|X|Y)$", chr)]
+if (!nrow(probe_dt) || anyDuplicated(probe_dt$probe_id) ||
+    any(!is.finite(probe_dt$start) | !is.finite(probe_dt$end)) ||
+    any(probe_dt$start < 0 | probe_dt$end < probe_dt$start)) {
+  stop("The mapped manifest must contain unique probes and valid coordinates")
+}
 beta <- beta[probe_dt$probe_id, , drop = FALSE]
 # This mean is taken AFTER sample matching/metadata exclusions, omitting NA
 # betas within each probe. It is the same-sample mean, not a young or baseline
@@ -103,6 +113,7 @@ if (length(covariates)) {
 }
 formula_text <- paste("~ age_for_model", if (length(covariates)) paste("+", paste(covariates, collapse = " + ")) else "")
 design <- model.matrix(as.formula(formula_text), data = design_dt)
+if (qr(design)$rank != ncol(design)) stop("Rank-deficient specimen-level age/covariate design")
 age_column <- which(colnames(design) == "age_for_model")
 
 fit_probe <- function(y) {
@@ -117,8 +128,8 @@ fit_probe <- function(y) {
   rdf <- fit$df.residual
   if (rdf <= 0) return(c(NA_real_, NA_real_, NA_real_))
   # Conventional residual-variance/QR SE. A rank-deficient or pivoted design
-  # needs scrutiny: the historical indexing is preserved here. The curated
-  # runner checks the specimen-level design rank; probe-level missingness may
+  # needs scrutiny: the historical indexing is preserved here. This script
+  # checks the specimen-level design rank; probe-level missingness may
   # still change estimability. Later models do not propagate these slope SEs.
   xtx_inv <- tryCatch(chol2inv(fit$qr$qr[seq_len(fit$rank), seq_len(fit$rank), drop = FALSE]), error = function(e) NULL)
   if (is.null(xtx_inv) || age_column > nrow(xtx_inv)) return(c(NA_real_, NA_real_, NA_real_))
@@ -189,7 +200,7 @@ if (isTRUE(opt$slopes_only)) {
 }
 
 # Everything below is an older exploratory output family, NOT manuscript
-# evidence. It remains for backwards compatibility but the paper runner skips it.
+# evidence. It remains for backwards compatibility but main.nf skips it.
 summary_dt <- probe_dt[is.finite(slope), .(
   n_probes = .N,
   mean_slope = mean(slope),

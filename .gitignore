@@ -1,6 +1,9 @@
 .DS_Store
 .nextflow/
 .nextflow.log*
+.nextflow-paper-trace.txt
 work/
 results/
 rawfiles/
+paper_render_*.html
+g4_offline_*.html

@@ -630,26 +630,29 @@ rate of methylation aging.</p>
 <p>The source series are <a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61257">GSE61257</a>,
 <a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61258">GSE61258</a>,
 and <a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE61259">GSE61259</a>.
-Age-slope fitting and the two annotation models are implemented in <a href="bin/analyze_g4_methylation_age.R">bin/analyze_g4_methylation_age.R</a>
-and <a href="bin/compare_g4_effects_adjusted.R">bin/compare_g4_effects_adjusted.R</a>;
-the Quadron input configuration is <a href="params_GSE61256_quadron.yaml">params_GSE61256_quadron.yaml</a>.</p>
+<a href="main.nf">main.nf</a> is the single computational entry point,
+with input and resource settings in <a href="nextflow.config">nextflow.config</a>. Its module invokes the
+commented R calculation scripts, including <a href="bin/analyze_g4_methylation_age.R">bin/analyze_g4_methylation_age.R</a>
+for age slopes and <a href="bin/compare_g4_effects_adjusted.R">bin/compare_g4_effects_adjusted.R</a>
+for M0/M1. The final Nextflow task compares every column of the six
+regenerated model tables with the frozen manuscript references. The <a href="README.md">README.md</a> documents prepared-input, saved-slope,
+and processed-GEO entry points.</p>
 <p>The six retained model tables, aggregate cohort summary, and
 unchanged original figure PNGs are bundled alongside this manuscript so
 that the Markdown does not depend on an ignored results directory. <a href="G4_methylation_paper_files/source_manifest.csv">G4_methylation_paper_files/source_manifest.csv</a>
 maps each model/figure artifact to its source and MD5 checksum. The full
 <a href="G4_methylation_paper_files/data/quadron_minimal_stable_unstable_mean_beta_coefficients.csv">M0
 coefficients</a> and <a href="G4_methylation_paper_files/data/quadron_minimal_strand_g_richness_coefficients.csv">M1
-coefficients</a> retain the exact formulas and unrounded results. <a href="G4_methylation_paper_files/render_session_info.txt">G4_methylation_paper_files/render_session_info.txt</a>
-records the document-rendering environment, not the original analysis
-environment. These files reproduce the manuscript from saved outputs;
-re-estimating the scientific models additionally requires the original
-beta matrices and annotation provenance.</p>
-<p>From the BTEP directory, <a href="render_G4_methylation_paper.R">render_G4_methylation_paper.R</a>
-regenerates the Markdown and embeds the figure and math resources into
-the HTML. Rendering requires the documented R packages and internet
-access for the KaTeX dependency; the completed HTML can be read
-offline:</p>
-<pre class="r"><code>source(&quot;render_G4_methylation_paper.R&quot;)</code></pre>
+coefficients</a> retain the exact formulas and unrounded results.
+Rendering checks the frozen asset hashes without refreshing them.
+Re-estimating the scientific models requires the beta matrices or saved
+slopes and the relevant annotation checkpoints; Nextflow retains task
+commands, logs, and caching metadata separately from the paper.</p>
+<p>From the BTEP directory, the Rmd directly regenerates Markdown and
+embeds the figure and math resources into HTML. Rendering requires the
+documented R packages and internet access for the KaTeX dependency; the
+completed HTML can be read offline:</p>
+<pre class="r"><code>rmarkdown::render(&quot;G4_methylation_paper.Rmd&quot;, output_format = &quot;all&quot;)</code></pre>
 </div>
 <div id="ethics-statement" class="section level1">
 <h1>Ethics statement</h1>
